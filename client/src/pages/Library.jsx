@@ -69,7 +69,7 @@ export default function Library() {
                 <CardContent className="p-6 overflow-hidden">
                   <div className="flex items-start gap-4">
                     {cover ? (
-                      <img src={cover} alt={name} className="w-20 h-20 rounded-lg object-cover shadow" />
+                      <img src={cover} alt={name} loading="lazy" className="w-20 h-20 rounded-lg object-cover shadow" />
                     ) : (
                       <div className="w-20 h-20 rounded-lg bg-gradient-to-br from-slate-700 to-slate-800 shadow flex items-center justify-center text-slate-300 text-sm">{name[0]?.toUpperCase() || 'P'}</div>
                     )}
@@ -122,7 +122,7 @@ export default function Library() {
                           {(list || []).map((t, idx) => (
                             <li key={t.id} className="flex items-center justify-between bg-slate-800/40 hover:bg-slate-700/40 transition-colors rounded-md p-2 min-w-0 w-full cursor-pointer" onClick={() => playFromPlaylist(list, idx)}>
                               <div className="flex items-center gap-3 flex-1 min-w-0">
-                                <img src={`https://i.ytimg.com/vi/${t.id}/default.jpg`} alt={t.title} className="w-10 h-10 rounded object-cover flex-shrink-0" />
+                                <img src={`https://i.ytimg.com/vi/${t.id}/default.jpg`} alt={t.title} loading="lazy" className="w-10 h-10 rounded object-cover flex-shrink-0" />
                                 <div className="flex-1 min-w-0 max-w-full">
                                   <div className="text-sm text-white truncate" title={t.title}>{t.title}</div>
                                   <div className="text-xs text-slate-400 truncate" title={t.channel}>{t.channel}</div>

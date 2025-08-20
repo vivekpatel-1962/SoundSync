@@ -4,25 +4,44 @@ const baseHeaders = () => {
     // If Clerk is available, forward a simple user id header for demo endpoints
     const uid = typeof window !== 'undefined' && window.Clerk && window.Clerk.user && window.Clerk.user.id;
     if (uid) headers['x-user-id'] = uid;
+    // Dev fallback: ensure a stable local id so server can store user/yt likes
+    if (!headers['x-user-id']) {
+      const key = 'dev-user-id';
+      let devId = '';
+      try { devId = localStorage.getItem(key) || ''; } catch {}
+      if (!devId) {
+        devId = 'local-dev';
+        try { localStorage.setItem(key, devId); } catch {}
+      }
+      headers['x-user-id'] = devId;
+    }
   } catch {}
   return headers;
 };
 
 const request = async (path, options = {}) => {
-  const res = await fetch(`/api${path}`, {
-    headers: { ...baseHeaders(), ...(options.headers || {}) },
-    ...options
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(text || `${res.status}`);
-  if (!text) return {};
-  try { return JSON.parse(text); } catch { return { raw: text }; }
+  const { timeoutMs = 5000, ...rest } = options;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`/api${path}`, {
+      headers: { ...baseHeaders(), ...(rest.headers || {}) },
+      signal: controller.signal,
+      ...rest
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(text || `${res.status}`);
+    if (!text) return {};
+    try { return JSON.parse(text); } catch { return { raw: text }; }
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 export const api = {
-  get: (path) => request(path),
-  post: (path, body) => request(path, { method: 'POST', body: JSON.stringify(body || {}) }),
-  delete: (path) => request(path, { method: 'DELETE' }),
+  get: (path, opts) => request(path, { timeoutMs: 5000, ...(opts || {}) }),
+  post: (path, body, opts) => request(path, { method: 'POST', body: JSON.stringify(body || {}), timeoutMs: 5000, ...(opts || {}) }),
+  delete: (path, opts) => request(path, { method: 'DELETE', timeoutMs: 5000, ...(opts || {}) }),
   download: async (path, filename) => {
     const res = await fetch(`/api${path}`, { headers: baseHeaders() });
     const text = await res.text();

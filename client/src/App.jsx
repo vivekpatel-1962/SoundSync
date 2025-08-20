@@ -1,7 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import NavBar from './components/NavBar.jsx';
 import { Button } from './components/ui/button.jsx';
+import { useUser } from '@clerk/clerk-react';
+import { api } from './services/api.js';
 
 // Lazy-load YouTube IFrame Player API
 let ytApiPromise;
@@ -28,34 +30,77 @@ const PlayerContext = createContext(null);
 export const usePlayer = () => useContext(PlayerContext);
 
 function PlayerProvider({ children }) {
+  const { isSignedIn, user } = useUser();
+  const uid = user?.id;
   const [queue, setQueue] = useState([]); // [{ type:'youtube', id, title, channel }]
   const [index, setIndex] = useState(-1);
   const [current, setCurrent] = useState(null);
   const [visible, setVisible] = useState(false);
-  // Local likes for YouTube items
-  const [ytLikes, setYtLikes] = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem('ytLikes') || '[]')); } catch { return new Set(); }
-  });
-  // Local playlists for YouTube items
-  const [ytPlaylists, setYtPlaylists] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('ytPlaylists') || '{}'); } catch { return {}; }
-  });
+  // Local likes/playlists (namespaced per user when signed in)
+  const [ytLikes, setYtLikes] = useState(() => new Set());
+  const [ytPlaylists, setYtPlaylists] = useState(() => ({}));
+
+  const storageKeys = useCallback((id) => ({
+    likes: id ? `ytLikes:${id}` : 'ytLikes',
+    playlists: id ? `ytPlaylists:${id}` : 'ytPlaylists'
+  }), []);
+
+  // Hydrate likes/playlists whenever auth state changes
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      // reset view immediately to avoid showing previous user's data
+      setYtLikes(new Set());
+      setYtPlaylists({});
+      // 1) Cache-first hydrate (instant UI), then server refresh in background
+      try {
+        if (isSignedIn && uid) {
+          const keys = storageKeys(uid);
+          try {
+            const likesArr = JSON.parse(localStorage.getItem(keys.likes) || '[]');
+            setYtLikes(new Set(Array.isArray(likesArr) ? likesArr : []));
+          } catch {}
+          try {
+            const plObj = JSON.parse(localStorage.getItem(keys.playlists) || '{}');
+            setYtPlaylists(plObj && typeof plObj === 'object' ? plObj : {});
+          } catch {}
+        } else {
+          try {
+            const likesArr = JSON.parse(localStorage.getItem('ytLikes') || '[]');
+            setYtLikes(new Set(Array.isArray(likesArr) ? likesArr : []));
+          } catch {}
+          try {
+            const plObj = JSON.parse(localStorage.getItem('ytPlaylists') || '{}');
+            setYtPlaylists(plObj && typeof plObj === 'object' ? plObj : {});
+          } catch {}
+        }
+      } catch {}
+
+      // 2) If signed in, refresh from server in background and update cache
+      if (isSignedIn && uid) {
+        try {
+          const data = await api.get('/user/yt');
+          if (cancelled) return;
+          const likesArr = Array.isArray(data.likes) ? data.likes : [];
+          const plObj = data.playlists && typeof data.playlists === 'object' ? data.playlists : {};
+          setYtLikes(new Set(likesArr));
+          setYtPlaylists(plObj);
+          const keys = storageKeys(uid);
+          try { localStorage.setItem(keys.likes, JSON.stringify(likesArr)); } catch {}
+          try { localStorage.setItem(keys.playlists, JSON.stringify(plObj)); } catch {}
+        } catch {
+          // keep cached state on failure
+        }
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [isSignedIn, uid, storageKeys]);
 
   useEffect(() => {
     setCurrent(index >= 0 && index < queue.length ? queue[index] : null);
   }, [queue, index]);
 
-  const playYouTube = useCallback((id, meta = {}) => {
-    const track = { type: 'youtube', id, ...meta };
-    setQueue([track]);
-    setIndex(0);
-    setVisible(true);
-  }, []);
-
-  const enqueue = useCallback((items) => {
-    setQueue(prev => [...prev, ...items]);
-    if (index === -1 && items.length > 0) setIndex(0);
-  }, [index]);
 
   const next = useCallback(() => {
     setIndex(i => {
@@ -74,17 +119,39 @@ function PlayerProvider({ children }) {
   const close = useCallback(() => setVisible(false), []);
 
   const isLiked = useCallback((id) => ytLikes.has(id), [ytLikes]);
-  const toggleLike = useCallback((id, track) => {
+  const toggleLike = useCallback(async (id, track) => {
     if (!id) return;
+    if (isSignedIn && uid) {
+      try {
+        const data = await api.post('/user/yt/likes/toggle', { id, track });
+        const likesArr = Array.isArray(data.likes) ? data.likes : [];
+        const plObj = data.playlists && typeof data.playlists === 'object' ? data.playlists : {};
+        setYtLikes(new Set(likesArr));
+        setYtPlaylists(plObj);
+        try {
+          const keys = storageKeys(uid);
+          localStorage.setItem(keys.likes, JSON.stringify(likesArr));
+        } catch {}
+        try {
+          const keys = storageKeys(uid);
+          localStorage.setItem(keys.playlists, JSON.stringify(plObj));
+        } catch {}
+        return;
+      } catch {}
+    }
+    // Fallback: local only
     setYtLikes(prev => {
       const next = new Set(prev);
       const willLike = !next.has(id);
       if (willLike) next.add(id); else next.delete(id);
-      try { localStorage.setItem('ytLikes', JSON.stringify(Array.from(next))); } catch {}
-      // keep Liked playlist in sync
+      try {
+        const keys = storageKeys(isSignedIn ? uid : undefined);
+        localStorage.setItem(keys.likes, JSON.stringify(Array.from(next)));
+      } catch {}
       try {
         const name = 'liked';
-        const store = JSON.parse(localStorage.getItem('ytPlaylists') || '{}');
+        const keys = storageKeys(isSignedIn ? uid : undefined);
+        const store = JSON.parse(localStorage.getItem(keys.playlists) || '{}');
         const list = Array.isArray(store[name]) ? store[name] : [];
         if (willLike) {
           if (track && !list.some(t => t.id === id)) list.push({ id, title: track.title, channel: track.channel });
@@ -93,65 +160,122 @@ function PlayerProvider({ children }) {
           if (idx >= 0) list.splice(idx, 1);
         }
         store[name] = list;
-        localStorage.setItem('ytPlaylists', JSON.stringify(store));
+        const keys2 = storageKeys(isSignedIn ? uid : undefined);
+        localStorage.setItem(keys2.playlists, JSON.stringify(store));
         setYtPlaylists(store);
       } catch {}
       return next;
     });
-  }, []);
+  }, [isSignedIn, uid, storageKeys]);
 
-  const addToPlaylist = useCallback((name, track) => {
+  const addToPlaylist = useCallback(async (name, track) => {
     if (!name || !track?.id) return;
-    const key = 'ytPlaylists';
+    if (isSignedIn && uid) {
+      try {
+        const data = await api.post(`/user/yt/playlists/${encodeURIComponent(name)}/tracks`, { track: { id: track.id, title: track.title, channel: track.channel } });
+        const plObj = data.playlists && typeof data.playlists === 'object' ? data.playlists : {};
+        setYtPlaylists(plObj);
+        try {
+          const keys = storageKeys(uid);
+          localStorage.setItem(keys.playlists, JSON.stringify(plObj));
+        } catch {}
+        return;
+      } catch {}
+    }
+    // Fallback: local only
+    const keys = storageKeys(isSignedIn ? uid : undefined);
     try {
-      const store = JSON.parse(localStorage.getItem(key) || '{}');
+      const store = JSON.parse(localStorage.getItem(keys.playlists) || '{}');
       const list = Array.isArray(store[name]) ? store[name] : [];
       if (!list.some(t => t.id === track.id)) list.push({ id: track.id, title: track.title, channel: track.channel });
       store[name] = list;
-      localStorage.setItem(key, JSON.stringify(store));
+      localStorage.setItem(keys.playlists, JSON.stringify(store));
       setYtPlaylists(store);
     } catch {}
-  }, []);
+  }, [isSignedIn, uid, storageKeys]);
 
-  const removeFromPlaylist = useCallback((name, id) => {
+  const removeFromPlaylist = useCallback(async (name, id) => {
     if (!name || !id) return;
+    if (isSignedIn && uid) {
+      try {
+        const data = await api.delete(`/user/yt/playlists/${encodeURIComponent(name)}/tracks/${encodeURIComponent(id)}`);
+        const plObj = data.playlists && typeof data.playlists === 'object' ? data.playlists : {};
+        setYtPlaylists(plObj);
+        try {
+          const keys = storageKeys(uid);
+          localStorage.setItem(keys.playlists, JSON.stringify(plObj));
+        } catch {}
+        return;
+      } catch {}
+    }
+    // Fallback local
     try {
-      const store = JSON.parse(localStorage.getItem('ytPlaylists') || '{}');
+      const keys = storageKeys(isSignedIn ? uid : undefined);
+      const store = JSON.parse(localStorage.getItem(keys.playlists) || '{}');
       const list = Array.isArray(store[name]) ? store[name] : [];
       const nextList = list.filter(t => t.id !== id);
       store[name] = nextList;
-      localStorage.setItem('ytPlaylists', JSON.stringify(store));
+      localStorage.setItem(keys.playlists, JSON.stringify(store));
       setYtPlaylists(store);
     } catch {}
-  }, []);
+  }, [isSignedIn, uid, storageKeys]);
 
-  const deleteLocalPlaylist = useCallback((name) => {
+  const deleteLocalPlaylist = useCallback(async (name) => {
     if (!name || name === 'liked') return; // protect liked
+    if (isSignedIn && uid) {
+      try {
+        await api.delete(`/user/yt/playlists/${encodeURIComponent(name)}`);
+        // refetch to be safe
+        const data = await api.get('/user/yt');
+        const plObj = data.playlists && typeof data.playlists === 'object' ? data.playlists : {};
+        setYtPlaylists(plObj);
+        try {
+          const keys = storageKeys(uid);
+          localStorage.setItem(keys.playlists, JSON.stringify(plObj));
+        } catch {}
+        return;
+      } catch {}
+    }
     try {
-      const store = JSON.parse(localStorage.getItem('ytPlaylists') || '{}');
+      const keys = storageKeys(isSignedIn ? uid : undefined);
+      const store = JSON.parse(localStorage.getItem(keys.playlists) || '{}');
       if (store[name]) {
         delete store[name];
-        localStorage.setItem('ytPlaylists', JSON.stringify(store));
+        localStorage.setItem(keys.playlists, JSON.stringify(store));
         setYtPlaylists(store);
       }
     } catch {}
-  }, []);
+  }, [isSignedIn, uid, storageKeys]);
 
-  const createLocalPlaylist = useCallback((name) => {
+  const createLocalPlaylist = useCallback(async (name) => {
     const n = (name || '').trim();
     if (!n || n.toLowerCase() === 'liked') return; // do not override liked
+    if (isSignedIn && uid) {
+      try {
+        await api.post('/user/yt/playlists', { name: n });
+        const data = await api.get('/user/yt');
+        const plObj = data.playlists && typeof data.playlists === 'object' ? data.playlists : {};
+        setYtPlaylists(plObj);
+        try {
+          const keys = storageKeys(uid);
+          localStorage.setItem(keys.playlists, JSON.stringify(plObj));
+        } catch {}
+        return;
+      } catch {}
+    }
     try {
-      const store = JSON.parse(localStorage.getItem('ytPlaylists') || '{}');
+      const keys = storageKeys(isSignedIn ? uid : undefined);
+      const store = JSON.parse(localStorage.getItem(keys.playlists) || '{}');
       if (!store[n]) {
         store[n] = [];
-        localStorage.setItem('ytPlaylists', JSON.stringify(store));
+        localStorage.setItem(keys.playlists, JSON.stringify(store));
         setYtPlaylists(store);
       }
     } catch {}
-  }, []);
+  }, [isSignedIn, uid, storageKeys]);
 
   return (
-    <PlayerContext.Provider value={{ queue, index, current, visible, playYouTube, enqueue, next, prev, close, setVisible, setQueue, setIndex, isLiked, toggleLike, ytPlaylists, addToPlaylist, removeFromPlaylist, deleteLocalPlaylist, createLocalPlaylist }}>
+    <PlayerContext.Provider value={{ queue, index, current, visible, next, prev, close, setVisible, setQueue, setIndex, isLiked, toggleLike, ytPlaylists, addToPlaylist, removeFromPlaylist, deleteLocalPlaylist, createLocalPlaylist }}>
       {children}
     </PlayerContext.Provider>
   );
@@ -167,6 +291,18 @@ function MiniPlayer() {
   const [isPlaying, setIsPlaying] = useState(true);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  // Repeat mode: 'off' | 'one'
+  const [repeatMode, setRepeatMode] = useState('off');
+  const cycleRepeat = () => setRepeatMode(m => (m === 'off' ? 'one' : 'off'));
+  const repeatTitle = repeatMode === 'one' ? 'Repeat this song' : 'Repeat off';
+  const repeatSymbol = repeatMode === 'one' ? '🔂' : '🔁';
+  // Refs to avoid stale values inside YT event handlers
+  const repeatModeRef = useRef(repeatMode);
+  useEffect(() => { repeatModeRef.current = repeatMode; }, [repeatMode]);
+  const indexRef = useRef(index);
+  useEffect(() => { indexRef.current = index; }, [index]);
+  const queueRef = useRef(queue);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
   const [showPl, setShowPl] = useState(false);
   const plMenuRef = useRef(null);
   const [newPl, setNewPl] = useState('');
@@ -219,9 +355,11 @@ function MiniPlayer() {
       ytRef.current = YT;
       const loadVideo = (id) => {
         // Ignore stray ENDED events fired immediately after a manual load
-        ignoreEndUntilRef.current = Date.now() + 1000;
+        ignoreEndUntilRef.current = Date.now() + 1200;
         if (playerRef.current) {
-          playerRef.current.loadVideoById(id);
+          // Stop previous playback to avoid it resuming unexpectedly
+          try { playerRef.current.stopVideo?.(); } catch {}
+          try { playerRef.current.loadVideoById({ videoId: id, startSeconds: 0 }); } catch {}
         } else if (containerRef.current) {
           playerRef.current = new YT.Player(containerRef.current, {
             videoId: id,
@@ -233,11 +371,23 @@ function MiniPlayer() {
               },
               onStateChange: (e) => {
                 const s = e.data;
+                // Ignore events coming from an outdated video id (race during fast switches)
+                const vid = e?.target?.getVideoData?.().video_id;
+                if (vid && current?.id && vid !== current.id) return;
                 if (s === YT.PlayerState.PLAYING) setIsPlaying(true);
                 else if (s === YT.PlayerState.PAUSED) setIsPlaying(false);
                 else if (s === YT.PlayerState.ENDED) {
                   if (Date.now() < ignoreEndUntilRef.current) return;
-                  next();
+                  const rm = repeatModeRef.current;
+                  if (rm === 'one') {
+                    // small guard window to ignore any stray ENDED events from the seek
+                    ignoreEndUntilRef.current = Date.now() + 800;
+                    try { e.target.seekTo(0, true); e.target.playVideo(); } catch {}
+                    setIsPlaying(true);
+                  } else {
+                    // Keep original playlist behavior: always advance to next
+                    next();
+                  }
                 }
               }
             }
@@ -494,6 +644,13 @@ function MiniPlayer() {
               <Button aria-label="Forward 10 seconds" title="Forward 10 seconds" variant="outline" size="sm" onClick={() => seekBy(10)}>⏩</Button>
               <Button aria-label="Next" title="Next" variant="outline" size="sm" onClick={next} disabled={!canNext}>⏭</Button>
               <div className="ml-auto flex items-center gap-2">
+                <Button
+                  aria-label={repeatTitle}
+                  title={repeatTitle}
+                  variant={repeatMode === 'off' ? 'outline' : 'secondary'}
+                  size="sm"
+                  onClick={cycleRepeat}
+                >{repeatSymbol}</Button>
                 {/* Like current track */}
                 <Button
                   aria-label={isLiked(current.id) ? 'Unlike' : 'Like'}
@@ -566,7 +723,6 @@ function MiniPlayer() {
 // Note: This relies on MiniPlayer's state; ensure it's within the same component scope
 
 export default function App({ children }) {
-  const location = useLocation();
   return (
     <PlayerProvider>
       <div className="min-h-screen grid grid-rows-[auto,1fr,auto]">

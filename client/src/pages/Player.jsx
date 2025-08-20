@@ -27,6 +27,11 @@ export default function Player() {
   const [idx, setIdx] = useState(0);
   const [lyrics, setLyrics] = useState(null);
 
+  // Repeat controls: 'off' | 'all' | 'one'
+  const [repeatMode, setRepeatMode] = useState('off');
+  const [restartNonce, setRestartNonce] = useState(0);
+  const cycleRepeat = () => setRepeatMode(m => (m === 'off' ? 'all' : m === 'all' ? 'one' : 'off'));
+
   // --- YouTube mode state ---
   const [ytMeta, setYtMeta] = useState(null);
   const [ytPlaying, setYtPlaying] = useState(false);
@@ -35,6 +40,8 @@ export default function Player() {
   const [ytError, setYtError] = useState(null);
   const ytContainerRef = useRef(null);
   const ytPlayerRef = useRef(null);
+  const repeatRef = useRef('off');
+  useEffect(() => { repeatRef.current = repeatMode; }, [repeatMode]);
 
   // --- Regular sample songs fetch ---
   useEffect(() => { api.get('/songs').then(s => setSongs(s.songs)); }, []);
@@ -75,7 +82,16 @@ export default function Player() {
           onStateChange: (e) => {
             if (e.data === window.YT.PlayerState.PLAYING) setYtPlaying(true);
             if (e.data === window.YT.PlayerState.PAUSED) setYtPlaying(false);
-            if (e.data === window.YT.PlayerState.ENDED) setYtPlaying(false);
+            if (e.data === window.YT.PlayerState.ENDED) {
+              setYtPlaying(false);
+              if (repeatRef.current === 'one') {
+                try {
+                  const p = ytPlayerRef.current;
+                  p?.seekTo(0, true);
+                  p?.playVideo();
+                } catch {}
+              }
+            }
           },
           onError: (e) => {
             // Map common YT errors to friendly messages
@@ -137,6 +153,13 @@ export default function Player() {
               )}
             </div>
             <div className="flex items-center gap-2">
+              <button
+                className={`btn ${repeatMode === 'off' ? 'btn-secondary' : 'btn-primary'}`}
+                title={repeatMode === 'one' ? 'Repeat one' : repeatMode === 'all' ? 'Repeat all' : 'Repeat'}
+                onClick={cycleRepeat}
+              >
+                {repeatMode === 'one' ? '🔂' : '🔁'}
+              </button>
               <button className="btn btn-secondary" onClick={ytBack} disabled={!ytReady || !!ytError}>-10s</button>
               <button className="btn btn-primary" onClick={ytToggle} disabled={!ytReady || !!ytError}>{ytPlaying ? 'Pause' : 'Play'}</button>
               <button className="btn btn-secondary" onClick={ytFwd} disabled={!ytReady || !!ytError}>+10s</button>
@@ -159,12 +182,28 @@ export default function Player() {
   // --- Existing local audio player mode ---
   if (!current) return <div>Loading...</div>;
 
-  const onEnd = () => setIdx(i => (i + 1) % songs.length);
+  const onEnd = () => setIdx(i => {
+    if (repeatMode === 'one') { setRestartNonce(n => n + 1); return i; }
+    const next = i + 1;
+    if (next < songs.length) return next;
+    if (repeatMode === 'all') return 0;
+    return i; // stop at end when off
+  });
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div className="lg:col-span-2 space-y-4">
-        <PlayerControls src={current.audioUrl} cover={current.cover} title={current.title} artist={current.artist} onEnd={onEnd} />
+        <PlayerControls
+          key={`pl-${current.id}-${restartNonce}`}
+          src={current.audioUrl}
+          cover={current.cover}
+          title={current.title}
+          artist={current.artist}
+          onEnd={onEnd}
+          autoPlay
+          repeatMode={repeatMode}
+          onToggleRepeat={cycleRepeat}
+        />
         <Lyrics lyrics={lyrics} />
       </div>
       <aside className="space-y-2">

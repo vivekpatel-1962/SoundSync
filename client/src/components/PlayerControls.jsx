@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-export default function PlayerControls({ src, cover, title, artist, onEnd }) {
+export default function PlayerControls({ src, cover, title, artist, onEnd, autoPlay = false, repeatMode = 'off', onToggleRepeat }) {
   const audioRef = useRef(null);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -17,7 +17,16 @@ export default function PlayerControls({ src, cover, title, artist, onEnd }) {
     };
   }, [onEnd]);
 
-  useEffect(() => { setPlaying(false); if (audioRef.current) { audioRef.current.pause(); audioRef.current.currentTime = 0; } }, [src]);
+  useEffect(() => {
+    const a = audioRef.current;
+    setPlaying(false);
+    if (!a) return;
+    a.pause();
+    a.currentTime = 0;
+    if (src && autoPlay) {
+      a.play().then(() => setPlaying(true)).catch(() => {});
+    }
+  }, [src, autoPlay]);
 
   const toggle = () => {
     const a = audioRef.current;
@@ -37,11 +46,20 @@ export default function PlayerControls({ src, cover, title, artist, onEnd }) {
         </div>
       </div>
       <div className="flex items-center gap-2">
+        {onToggleRepeat && (
+          <button
+            className={`btn ${repeatMode === 'off' ? 'btn-secondary' : 'btn-primary'}`}
+            title={repeatMode === 'one' ? 'Repeat one' : repeatMode === 'all' ? 'Repeat all' : 'Repeat'}
+            onClick={() => onToggleRepeat && onToggleRepeat()}
+          >
+            {repeatMode === 'one' ? '🔂' : '🔁'}
+          </button>
+        )}
         <button className="btn btn-secondary" onClick={() => { audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 10); }}>-10s</button>
         <button className="btn btn-primary" onClick={toggle}>{playing ? 'Pause' : 'Play'}</button>
         <button className="btn btn-secondary" onClick={() => { audioRef.current.currentTime = Math.min(audioRef.current.duration, audioRef.current.currentTime + 10); }}>+10s</button>
       </div>
-      <audio ref={audioRef} src={src} preload="metadata" />
+      <audio ref={audioRef} src={src} preload="metadata" autoPlay={autoPlay} />
     </div>
   );
 }

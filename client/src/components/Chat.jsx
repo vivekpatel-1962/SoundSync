@@ -20,7 +20,8 @@ export default function Chat({ roomId }) {
 
   const send = () => {
     if (!text.trim()) return;
-    socket.emit('message', { roomId, userId: user.id, text });
+    const userName = user?.username || user?.fullName || user?.primaryEmailAddress?.emailAddress || user?.id;
+    socket.emit('message', { roomId, userId: user.id, userName, text });
     setText('');
   };
 
@@ -29,7 +30,7 @@ export default function Chat({ roomId }) {
       <div className="font-semibold mb-2">Room Chat</div>
       <div className="flex-1 overflow-y-auto space-y-2 pr-1 scrollbar-thin">
         {messages.map(m => (
-          <div key={m.id} className="text-sm"><span className="text-slate-400">{m.userId}:</span> {m.text}</div>
+          <div key={m.id} className="text-sm"><span className="text-slate-400">{m.userName || m.userId}:</span> {m.text}</div>
         ))}
         <div ref={bottomRef} />
       </div>

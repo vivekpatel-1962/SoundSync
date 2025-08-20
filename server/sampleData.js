@@ -72,15 +72,29 @@ if (!playlists.find(p => p.id === likedId)) {
   playlists.unshift({ id: likedId, name: 'Liked', cover: songs[0]?.cover, songIds: [] });
 }
 
+function genJoinCode() {
+  return uuid().slice(0, 8).toUpperCase();
+}
+
+function genUniqueJoinCode() {
+  let code;
+  do {
+    code = genJoinCode();
+  } while (rooms.some(r => r.joinCode && r.joinCode === code));
+  return code;
+}
+
 export const rooms = [
   {
     id: 'r1',
     name: 'Lounge',
     members: ['u1'],
-    queue: [ { songId: 's1', votes: { up: new Set(['u1']), down: new Set() } } ],
+    queue: [ { key: `sample:${songs[0].id}`, type: 'sample', songId: songs[0].id, meta: { title: songs[0].title, subtitle: songs[0].artist, cover: songs[0].cover }, votes: { up: new Set(['u1']), down: new Set() } } ],
     theme: { primary: '#7c3aed', accent: '#22d3ee' },
     isPairMode: false,
-    pair: []
+    pair: [],
+    isPublic: true,
+    joinCode: null
   }
 ];
 
@@ -122,7 +136,7 @@ export function deletePlaylist(id) {
   return true;
 }
 
-export function createRoom({ name, isPairMode = false, theme, pair = [] }) {
+export function createRoom({ name, isPairMode = false, theme, pair = [], isPublic = true }) {
   const room = {
     id: uuid(),
     name: name || 'New Room',
@@ -130,26 +144,53 @@ export function createRoom({ name, isPairMode = false, theme, pair = [] }) {
     queue: [],
     theme: theme || { primary: '#16a34a', accent: '#f59e0b' },
     isPairMode,
-    pair
+    pair,
+    isPublic: Boolean(isPublic),
+    joinCode: isPublic ? null : genUniqueJoinCode()
   };
   rooms.push(room);
   return room;
 }
 
-export function addToQueue(roomId, songId, userId) {
+function buildKeyAndMeta(payload) {
+  if (payload?.songId) {
+    const s = getSong(payload.songId);
+    if (!s) return null;
+    return {
+      key: `sample:${s.id}`,
+      type: 'sample',
+      meta: { title: s.title, subtitle: s.artist, cover: s.cover },
+      songId: s.id
+    };
+  }
+  const yt = payload?.yt;
+  if (yt?.id) {
+    return {
+      key: `yt:${yt.id}`,
+      type: 'yt',
+      meta: { title: yt.title || 'YouTube', subtitle: yt.channel || 'YouTube', cover: yt.cover },
+      ytId: yt.id
+    };
+  }
+  return null;
+}
+
+export function addToQueue(roomId, payload, userId) {
   const room = rooms.find(r => r.id === roomId);
   if (!room) return null;
-  const existing = room.queue.find(q => q.songId === songId);
+  const built = buildKeyAndMeta(payload);
+  if (!built) return null;
+  const existing = room.queue.find(q => q.key === built.key);
   if (existing) return existing;
-  const entry = { songId, votes: { up: new Set([userId]), down: new Set() } };
+  const entry = { ...built, votes: { up: new Set([userId]), down: new Set() } };
   room.queue.push(entry);
   return entry;
 }
 
-export function voteSong(roomId, songId, userId, vote) {
+export function voteSong(roomId, key, userId, vote) {
   const room = rooms.find(r => r.id === roomId);
   if (!room) return null;
-  const entry = room.queue.find(q => q.songId === songId);
+  const entry = room.queue.find(q => q.key === key);
   if (!entry) return null;
   // Ensure exclusive vote per user
   entry.votes.up.delete(userId);
@@ -160,7 +201,18 @@ export function voteSong(roomId, songId, userId, vote) {
 }
 
 export function serializeQueue(queue) {
-  return queue.map(q => ({ songId: q.songId, up: q.votes.up.size, down: q.votes.down.size }));
+  return queue.map(q => ({
+    key: q.key,
+    type: q.type,
+    title: q.meta?.title,
+    subtitle: q.meta?.subtitle,
+    cover: q.meta?.cover,
+    up: q.votes.up.size,
+    down: q.votes.down.size,
+    // Provide audioUrl for sample-library songs; YouTube entries have no direct URL here
+    audioUrl: q.songId ? (getSong(q.songId)?.audioUrl || null) : null,
+    ytId: q.ytId || null
+  }));
 }
 
 export function getRecommendationsForUser(userId, partnerId) {
