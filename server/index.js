@@ -10,6 +10,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { connectMongo, isMongoConfigured, isMongoConnected } from './db.js';
 import { getOrCreateUserYT } from './models/UserYT.js';
+import { Room } from './models/Room.js';
 import {
   users,
   songs,
@@ -59,6 +60,51 @@ function getMemUserYT(userId) {
 const REC_CACHE_TTL_MS = Number.parseInt(process.env.REC_CACHE_TTL_MS || '600000', 10); // default 10 minutes
 const recCache = new Map(); // key: `${userId}:${topK}` -> { t: number, data: any }
 const inflight = new Map(); // key: `${userId}:${topK}` -> Promise<void>
+
+// --- Helpers for Rooms (DB path) ---
+function votesCount(v) {
+  if (!v) return 0;
+  if (Array.isArray(v)) return v.length;
+  if (typeof v.size === 'number') return v.size;
+  return 0;
+}
+
+function serializeQueueAny(queue) {
+  return (queue || []).map(q => ({
+    key: q.key,
+    type: q.type,
+    title: q.meta?.title,
+    subtitle: q.meta?.subtitle,
+    cover: q.meta?.cover,
+    up: votesCount(q?.votes?.up),
+    down: votesCount(q?.votes?.down),
+    audioUrl: q.songId ? (getSong(q.songId)?.audioUrl || null) : null,
+    ytId: q.ytId || null
+  }));
+}
+
+function buildKeyAndMetaForDb(payload) {
+  if (payload?.songId) {
+    const s = getSong(payload.songId);
+    if (!s) return null;
+    return {
+      key: `sample:${s.id}`,
+      type: 'sample',
+      meta: { title: s.title, subtitle: s.artist, cover: s.cover },
+      songId: s.id
+    };
+  }
+  const yt = payload?.yt;
+  if (yt?.id) {
+    return {
+      key: `yt:${yt.id}`,
+      type: 'yt',
+      meta: { title: yt.title || 'YouTube', subtitle: yt.channel || 'YouTube', cover: yt.cover },
+      ytId: yt.id
+    };
+  }
+  return null;
+}
 
 // Socket.IO
 io.on('connection', (socket) => {
@@ -119,6 +165,11 @@ app.get('/api/recommendations', async (req, res) => {
 
   const userId = (req.header('x-user-id') || users[0]?.id || '').toString();
   const topK = Number.parseInt(req.query.top_k || '12', 10);
+  // Rec filtering controls (env-configurable)
+  const recsMusicOnlyParam = (process.env.RECS_MUSIC_ONLY ?? '1').toString().toLowerCase();
+  const RECS_MUSIC_ONLY = recsMusicOnlyParam === '1' || recsMusicOnlyParam === 'true' || recsMusicOnlyParam === 'yes' || recsMusicOnlyParam === 'on';
+  const RECS_MIN_SEC = Math.max(0, parseInt(process.env.RECS_MIN_SEC ?? '60', 10) || 0);
+  const RECS_MAX_SEC = Math.max(RECS_MIN_SEC, parseInt(process.env.RECS_MAX_SEC ?? '900', 10) || 900);
 
   // Cache key per user + topK
   const cacheKey = `${userId}:${topK}`;
@@ -172,14 +223,19 @@ app.get('/api/recommendations', async (req, res) => {
             artist: it.snippet?.channelTitle || 'YouTube',
             duration: iso8601ToSeconds(it.contentDetails?.duration),
             cover: it.snippet?.thumbnails?.medium?.url || it.snippet?.thumbnails?.default?.url || null,
-            source: 'yt'
+            source: 'yt',
+            cat: it.snippet?.categoryId
           }));
+          if (RECS_MUSIC_ONLY) {
+            likedItems = likedItems.filter(x => x.cat === '10' && x.duration >= RECS_MIN_SEC && x.duration <= RECS_MAX_SEC);
+          }
+          likedItems = likedItems.map(({ cat, ...rest }) => rest);
         }
         // 2) Related per first few liked
         const relatedIdSet = new Set();
         const seedIds = likedIds.slice(0, Math.min(5, likedIds.length));
         for (const seed of seedIds) {
-          const sp = new URLSearchParams({ key, part: 'snippet', type: 'video', maxResults: '10', relatedToVideoId: seed }).toString();
+          const sp = new URLSearchParams({ key, part: 'snippet', type: 'video', maxResults: '10', relatedToVideoId: seed, videoDuration: RECS_MUSIC_ONLY ? 'medium' : 'any' }).toString();
           const sUrl = `https://www.googleapis.com/youtube/v3/search?${sp}`;
           try {
             const js = await httpGetJson(sUrl);
@@ -201,8 +257,13 @@ app.get('/api/recommendations', async (req, res) => {
             artist: it.snippet?.channelTitle || 'YouTube',
             duration: iso8601ToSeconds(it.contentDetails?.duration),
             cover: it.snippet?.thumbnails?.medium?.url || it.snippet?.thumbnails?.default?.url || null,
-            source: 'yt'
+            source: 'yt',
+            cat: it.snippet?.categoryId
           }));
+          if (RECS_MUSIC_ONLY) {
+            relatedItems = relatedItems.filter(x => x.cat === '10' && x.duration >= RECS_MIN_SEC && x.duration <= RECS_MAX_SEC);
+          }
+          relatedItems = relatedItems.map(({ cat, ...rest }) => rest);
         }
         const seen = new Set();
         const combined = [];
@@ -242,7 +303,15 @@ app.get('/api/recommendations', async (req, res) => {
       const channels = Array.from(new Set((ytTracks || []).map(t => t.channel).filter(Boolean))).slice(0, 3);
       const candidateIds = new Set(ytLikes);
       const addSearch = async (q) => {
-        const params = new URLSearchParams({ key, part: 'snippet', type: 'video', maxResults: '20', videoEmbeddable: 'true', q }).toString();
+        const params = new URLSearchParams({
+          key,
+          part: 'snippet',
+          type: 'video',
+          maxResults: '20',
+          videoEmbeddable: 'true',
+          videoDuration: RECS_MUSIC_ONLY ? 'medium' : 'any',
+          q
+        }).toString();
         const url = `https://www.googleapis.com/youtube/v3/search?${params}`;
         const json = await httpGetJson(url);
         (json.items || []).forEach(it => { const vid = it.id?.videoId; if (vid) candidateIds.add(vid); });
@@ -255,16 +324,20 @@ app.get('/api/recommendations', async (req, res) => {
       const params2 = new URLSearchParams({ key, part: 'snippet,contentDetails', id: allIds.join(',') }).toString();
       const url2 = `https://www.googleapis.com/youtube/v3/videos?${params2}`;
       const details = await httpGetJson(url2);
-      const items = (details.items || []).map(it => ({
+      let items = (details.items || []).map(it => ({
         id: it.id,
         title: it.snippet?.title || 'YouTube',
         artist: it.snippet?.channelTitle || 'YouTube',
         duration: iso8601ToSeconds(it.contentDetails?.duration),
         cover: it.snippet?.thumbnails?.medium?.url || it.snippet?.thumbnails?.default?.url || null,
-        source: 'yt'
+        source: 'yt',
+        cat: it.snippet?.categoryId
       }));
-      songCatalog = items;
-      idToMeta = new Map(items.map(x => [x.id, x]));
+      if (RECS_MUSIC_ONLY) {
+        items = items.filter(x => x.cat === '10' && x.duration >= RECS_MIN_SEC && x.duration <= RECS_MAX_SEC);
+      }
+      songCatalog = items.map(({ cat, ...rest }) => rest);
+      idToMeta = new Map(songCatalog.map(x => [x.id, x]));
     } catch (e) {
       if (e?.quotaExceeded) quotaHit = true;
       // Fallback to sample catalog
@@ -370,8 +443,24 @@ app.get('/api/recommendations', async (req, res) => {
 });
 
 // --- Rooms ---
-app.get('/api/rooms', (req, res) => {
+app.get('/api/rooms', async (req, res) => {
   const uid = (req.header('x-user-id') || '').toString();
+  if (isMongoConfigured() && isMongoConnected()) {
+    try {
+      const docs = await Room.find({}, { queue: 0 }).lean();
+      const normalized = (docs || []).map(r => ({
+        id: r.id,
+        name: r.name,
+        size: Array.isArray(r.members) ? r.members.length : 0,
+        theme: r.theme,
+        isPairMode: !!r.isPairMode,
+        isPublic: !!r.isPublic,
+        isMember: uid ? (Array.isArray(r.members) && r.members.includes(uid)) : false
+      }));
+      return res.json({ rooms: normalized });
+    } catch {}
+  }
+  // Fallback to in-memory
   const normalized = rooms.map(r => ({
     id: r.id,
     name: r.name,
@@ -384,45 +473,103 @@ app.get('/api/rooms', (req, res) => {
   res.json({ rooms: normalized });
 });
 
-app.post('/api/rooms', (req, res) => {
+app.post('/api/rooms', async (req, res) => {
   const { name, isPairMode, theme, pair, isPublic } = req.body || {};
-  const room = createRoom({ name, isPairMode, theme, pair, isPublic });
-  // Auto-add creator as a member
   const uid = (req.header('x-user-id') || '').toString();
+  if (isMongoConfigured() && isMongoConnected()) {
+    try {
+      const id = uuid();
+      const privateCode = (isPublic ? null : uuid().slice(0, 8).toUpperCase());
+      const doc = await Room.create({
+        id,
+        name: name || 'New Room',
+        members: uid ? [uid] : [],
+        queue: [],
+        theme: theme || { primary: '#16a34a', accent: '#f59e0b' },
+        isPairMode: !!isPairMode,
+        pair: Array.isArray(pair) ? pair : [],
+        isPublic: isPublic !== false,
+        joinCode: privateCode
+      });
+      const { joinCode, ...rest } = doc.toObject();
+      return res.status(201).json({ room: { ...rest, joinCode: doc.isPublic ? null : joinCode } });
+    } catch (e) {
+      return res.status(500).json({ error: 'Failed to create room' });
+    }
+  }
+  // Fallback to in-memory
+  const room = createRoom({ name, isPairMode, theme, pair, isPublic });
   if (uid && !room.members.includes(uid)) room.members.push(uid);
-  // Return joinCode only on creation (for private rooms)
   const { joinCode, ...rest } = room;
   res.status(201).json({ room: { ...rest, joinCode: room.isPublic ? null : joinCode } });
 });
 
-app.get('/api/rooms/:id', (req, res) => {
+app.get('/api/rooms/:id', async (req, res) => {
   const uid = (req.header('x-user-id') || '').toString();
-  const room = rooms.find(r => r.id === req.params.id);
+  const roomId = req.params.id;
+  if (isMongoConfigured() && isMongoConnected()) {
+    try {
+      const doc = await Room.findOne({ id: roomId }).lean();
+      if (!doc) return res.status(404).json({ error: 'Room not found' });
+      const queue = serializeQueueAny(doc.queue);
+      const { joinCode, ...sanitized } = doc;
+      return res.json({ room: { ...sanitized, isMember: uid ? (doc.members || []).includes(uid) : false, queue } });
+    } catch {}
+  }
+  const room = rooms.find(r => r.id === roomId);
   if (!room) return res.status(404).json({ error: 'Room not found' });
   const queue = serializeQueue(room.queue);
-  // Do not expose joinCode
   const { joinCode, ...sanitized } = room;
   res.json({ room: { ...sanitized, isMember: uid ? room.members.includes(uid) : false, queue } });
 });
 
-app.post('/api/rooms/:id/join', (req, res) => {
-  const { userId, code } = req.body;
-  const room = rooms.find(r => r.id === req.params.id);
+app.post('/api/rooms/:id/join', async (req, res) => {
+  const { userId, code } = req.body || {};
+  const roomId = req.params.id;
+  if (isMongoConfigured() && isMongoConnected()) {
+    try {
+      const doc = await Room.findOne({ id: roomId });
+      if (!doc) return res.status(404).json({ error: 'Room not found' });
+      if (!doc.isPublic) {
+        if (!code || code !== doc.joinCode) return res.status(403).json({ error: 'Invalid or missing join code' });
+      }
+      if (!doc.members.includes(userId)) doc.members.push(userId);
+      await doc.save();
+      io.to(doc.id).emit('system', { type: 'member', message: `${userId} joined room` });
+      const { joinCode, ...sanitized } = doc.toObject();
+      return res.json({ room: { id: sanitized.id, name: sanitized.name, members: sanitized.members, isPublic: sanitized.isPublic } });
+    } catch (e) {
+      return res.status(500).json({ error: 'Failed to join room' });
+    }
+  }
+  const room = rooms.find(r => r.id === roomId);
   if (!room) return res.status(404).json({ error: 'Room not found' });
   if (!room.isPublic) {
     if (!code || code !== room.joinCode) return res.status(403).json({ error: 'Invalid or missing join code' });
   }
   if (!room.members.includes(userId)) room.members.push(userId);
   io.to(room.id).emit('system', { type: 'member', message: `${userId} joined room` });
-  // Do not expose joinCode
   const { joinCode, ...sanitized } = room;
   res.json({ room: { id: sanitized.id, name: sanitized.name, members: sanitized.members, isPublic: sanitized.isPublic } });
 });
 
 // Join a room via code only
-app.post('/api/rooms/join-by-code', (req, res) => {
+app.post('/api/rooms/join-by-code', async (req, res) => {
   const { code, userId } = req.body || {};
   if (!code) return res.status(400).json({ error: 'Missing code' });
+  if (isMongoConfigured() && isMongoConnected()) {
+    try {
+      const doc = await Room.findOne({ isPublic: false, joinCode: code });
+      if (!doc) return res.status(404).json({ error: 'Room not found' });
+      if (!doc.members.includes(userId)) doc.members.push(userId);
+      await doc.save();
+      io.to(doc.id).emit('system', { type: 'member', message: `${userId} joined room` });
+      const { joinCode, ...sanitized } = doc.toObject();
+      return res.json({ room: { id: sanitized.id, name: sanitized.name, members: sanitized.members, isPublic: sanitized.isPublic } });
+    } catch (e) {
+      return res.status(500).json({ error: 'Failed to join by code' });
+    }
+  }
   const room = rooms.find(r => !r.isPublic && r.joinCode === code);
   if (!room) return res.status(404).json({ error: 'Room not found' });
   if (!room.members.includes(userId)) room.members.push(userId);
@@ -432,18 +579,50 @@ app.post('/api/rooms/join-by-code', (req, res) => {
 });
 
 // Leave a room
-app.post('/api/rooms/:id/leave', (req, res) => {
+app.post('/api/rooms/:id/leave', async (req, res) => {
   const { userId } = req.body || {};
-  const room = rooms.find(r => r.id === req.params.id);
+  const roomId = req.params.id;
+  if (isMongoConfigured() && isMongoConnected()) {
+    try {
+      const doc = await Room.findOne({ id: roomId });
+      if (!doc) return res.status(404).json({ error: 'Room not found' });
+      doc.members = (doc.members || []).filter(id => id !== userId);
+      await doc.save();
+      io.to(doc.id).emit('system', { type: 'member', message: `${userId} left room` });
+      return res.json({ ok: true });
+    } catch (e) {
+      return res.status(500).json({ error: 'Failed to leave room' });
+    }
+  }
+  const room = rooms.find(r => r.id === roomId);
   if (!room) return res.status(404).json({ error: 'Room not found' });
   room.members = room.members.filter(id => id !== userId);
   io.to(room.id).emit('system', { type: 'member', message: `${userId} left room` });
   res.json({ ok: true });
 });
 
-app.post('/api/rooms/:id/queue', (req, res) => {
-  const { songId, yt, userId } = req.body;
+app.post('/api/rooms/:id/queue', async (req, res) => {
+  const { songId, yt, userId } = req.body || {};
   const roomId = req.params.id;
+  if (isMongoConfigured() && isMongoConnected()) {
+    try {
+      const doc = await Room.findOne({ id: roomId });
+      if (!doc) return res.status(404).json({ error: 'Room not found' });
+      if (!(doc.members || []).includes(userId)) return res.status(403).json({ error: 'Join the room to interact' });
+      const payload = songId ? { songId } : (yt ? { yt } : null);
+      const built = buildKeyAndMetaForDb(payload);
+      if (!built) return res.status(400).json({ error: 'Unable to add to queue' });
+      const exists = (doc.queue || []).find(q => q.key === built.key);
+      if (!exists) {
+        doc.queue.push({ ...built, votes: { up: [userId], down: [] } });
+        await doc.save();
+      }
+      io.to(doc.id).emit('queueUpdated', { queue: serializeQueueAny(doc.queue) });
+      return res.status(201).json({ queue: serializeQueueAny(doc.queue) });
+    } catch (e) {
+      return res.status(500).json({ error: 'Failed to add to queue' });
+    }
+  }
   const room = rooms.find(r => r.id === roomId);
   if (!room) return res.status(404).json({ error: 'Room not found' });
   if (!room.members.includes(userId)) return res.status(403).json({ error: 'Join the room to interact' });
@@ -454,9 +633,28 @@ app.post('/api/rooms/:id/queue', (req, res) => {
   res.status(201).json({ queue: serializeQueue(room.queue) });
 });
 
-app.post('/api/rooms/:id/vote', (req, res) => {
-  const { key, userId, vote } = req.body;
+app.post('/api/rooms/:id/vote', async (req, res) => {
+  const { key, userId, vote } = req.body || {};
   const roomId = req.params.id;
+  if (isMongoConfigured() && isMongoConnected()) {
+    try {
+      const doc = await Room.findOne({ id: roomId });
+      if (!doc) return res.status(404).json({ error: 'Room not found' });
+      if (!(doc.members || []).includes(userId)) return res.status(403).json({ error: 'Join the room to interact' });
+      const entry = (doc.queue || []).find(q => q.key === key);
+      if (!entry) return res.status(400).json({ error: 'Unable to vote' });
+      entry.votes = entry.votes || { up: [], down: [] };
+      entry.votes.up = (entry.votes.up || []).filter(id => id !== userId);
+      entry.votes.down = (entry.votes.down || []).filter(id => id !== userId);
+      if (vote === 'up') entry.votes.up.push(userId);
+      if (vote === 'down') entry.votes.down.push(userId);
+      await doc.save();
+      io.to(doc.id).emit('voteUpdated', { queue: serializeQueueAny(doc.queue) });
+      return res.json({ queue: serializeQueueAny(doc.queue) });
+    } catch (e) {
+      return res.status(500).json({ error: 'Failed to vote' });
+    }
+  }
   const room = rooms.find(r => r.id === roomId);
   if (!room) return res.status(404).json({ error: 'Room not found' });
   if (!room.members.includes(userId)) return res.status(403).json({ error: 'Join the room to interact' });
@@ -543,6 +741,38 @@ app.get('/api/yt/search', (req, res) => {
   if (!key) return res.status(500).json({ error: 'YOUTUBE_API_KEY not set on server' });
   if (!q) return res.status(400).json({ error: 'Missing query parameter q' });
 
+  const musicOnlyParam = (req.query.musicOnly || '1').toString().toLowerCase();
+  const musicOnly = musicOnlyParam === '1' || musicOnlyParam === 'true' || musicOnlyParam === 'yes' || musicOnlyParam === 'on';
+  const minSec = Math.max(0, parseInt((req.query.minSec || '60').toString(), 10) || 0); // default 60s to avoid reels
+  const maxSec = Math.max(minSec, parseInt((req.query.maxSec || '900').toString(), 10) || 900); // default 15m to avoid movies
+
+  function httpGetJson(url) {
+    return new Promise((resolve, reject) => {
+      https.get(url, (ytRes) => {
+        let data = '';
+        ytRes.on('data', chunk => { data += chunk; });
+        ytRes.on('end', () => {
+          try {
+            if (ytRes.statusCode && ytRes.statusCode >= 400) {
+              return reject(Object.assign(new Error('YouTube error'), { status: ytRes.statusCode, body: data }));
+            }
+            resolve(JSON.parse(data));
+          } catch (e) { reject(e); }
+        });
+      }).on('error', reject);
+    });
+  }
+
+  function iso8601ToSeconds(iso) {
+    if (!iso || typeof iso !== 'string') return 0;
+    const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+    if (!m) return 0;
+    const h = parseInt(m[1] || '0', 10);
+    const mn = parseInt(m[2] || '0', 10);
+    const s = parseInt(m[3] || '0', 10);
+    return h * 3600 + mn * 60 + s;
+  }
+
   const params = new URLSearchParams({
     key,
     part: 'snippet',
@@ -553,32 +783,50 @@ app.get('/api/yt/search', (req, res) => {
   }).toString();
 
   const url = `https://www.googleapis.com/youtube/v3/search?${params}`;
-  https.get(url, (ytRes) => {
-    let data = '';
-    ytRes.on('data', chunk => { data += chunk; });
-    ytRes.on('end', () => {
-      try {
-        if (ytRes.statusCode && ytRes.statusCode >= 400) {
-          return res.status(ytRes.statusCode).send(data);
-        }
-        const json = JSON.parse(data);
-        const items = (json.items || []).map(it => ({
-          id: it.id?.videoId,
-          title: it.snippet?.title,
-          channel: it.snippet?.channelTitle,
-          publishedAt: it.snippet?.publishedAt,
-          description: it.snippet?.description,
-          thumbnails: it.snippet?.thumbnails
-        })).filter(x => x.id);
-        res.json({ items, pageInfo: json.pageInfo, nextPageToken: json.nextPageToken });
-      } catch (e) {
-        res.status(502).json({ error: 'Failed to parse YouTube response' });
+  httpGetJson(url)
+    .then(async (json) => {
+      const items = (json.items || []).map(it => ({
+        id: it.id?.videoId,
+        title: it.snippet?.title,
+        channel: it.snippet?.channelTitle,
+        publishedAt: it.snippet?.publishedAt,
+        description: it.snippet?.description,
+        thumbnails: it.snippet?.thumbnails
+      })).filter(x => x.id);
+
+      if (!musicOnly || items.length === 0) {
+        return res.json({ items, pageInfo: json.pageInfo, nextPageToken: json.nextPageToken });
       }
+
+      // Fetch details for category and duration filtering
+      const ids = items.map(x => x.id).slice(0, 50);
+      const params2 = new URLSearchParams({ key, part: 'snippet,contentDetails', id: ids.join(',') }).toString();
+      const url2 = `https://www.googleapis.com/youtube/v3/videos?${params2}`;
+
+      try {
+        const details = await httpGetJson(url2);
+        const meta = new Map(details.items.map(it => [it.id, { cat: it.snippet?.categoryId, dur: iso8601ToSeconds(it.contentDetails?.duration) }]));
+        const filtered = items.filter(it => {
+          const m = meta.get(it.id);
+          if (!m) return false;
+          const isMusic = m.cat === '10'; // YouTube Music category
+          const inRange = m.dur >= minSec && m.dur <= maxSec;
+          return isMusic && inRange;
+        });
+        return res.json({ items: filtered, pageInfo: json.pageInfo, nextPageToken: json.nextPageToken });
+      } catch (e) {
+        // On failure of details call, fall back to unfiltered results
+        return res.json({ items, pageInfo: json.pageInfo, nextPageToken: json.nextPageToken, note: 'unfiltered-fallback' });
+      }
+    })
+    .catch((err) => {
+      console.error('YouTube search request failed:', {
+        message: err?.message || String(err),
+        status: err?.status,
+        body: err?.body
+      });
+      res.status(502).json({ error: 'YouTube request failed' });
     });
-  }).on('error', (err) => {
-    console.error('YouTube search request failed:', err?.message);
-    res.status(502).json({ error: 'YouTube request failed' });
-  });
 });
 
 // --- YouTube proxy: videos details ---
