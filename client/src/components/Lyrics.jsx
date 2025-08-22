@@ -30,11 +30,11 @@ export default function Lyrics({ lyrics }) {
         </div>
       </div>
       {mode === 'static' ? (
-        <pre className="whitespace-pre-wrap text-slate-200 leading-relaxed">{lyrics?.static || 'No lyrics'}</pre>
+        <pre className="whitespace-pre-wrap text-[var(--text-0)] leading-relaxed">{lyrics?.static || 'No lyrics'}</pre>
       ) : (
         <div className="space-y-1">
           {lyrics?.timed?.map((l, i) => (
-            <div key={i} className={`transition-colors ${i===activeIdx? 'text-white' : 'text-slate-400'}`}>{l.line}</div>
+            <div key={i} className={`transition-colors ${i===activeIdx? 'text-[var(--text-0)]' : 'text-[var(--text-1)]'}`}>{l.line}</div>
           ))}
         </div>
       )}

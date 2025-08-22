@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api.js';
 import { useUser } from '@clerk/clerk-react';
@@ -6,6 +7,8 @@ import { useRoom } from '../context/RoomContext.jsx';
 import Chat from '../components/Chat.jsx';
 import PlayerControls from '../components/PlayerControls.jsx';
 import YouTubePlayer from '../components/YouTubePlayer.jsx';
+import { Button } from '../components/ui/button.jsx';
+import { container, fadeUp } from '../lib/motionPresets.js';
 
 export default function RoomDetail() {
   const { id } = useParams();
@@ -75,6 +78,8 @@ export default function RoomDetail() {
   };
 
   const theme = useMemo(() => room?.theme || { primary: '#7c3aed', accent: '#22d3ee' }, [room]);
+  // Use a distinct public-room gradient similar to the reference image
+  const publicGradient = 'linear-gradient(135deg, #a9d6df 0%, #1b8c86 100%)';
   const sortedQueue = useMemo(() => {
     const list = Array.isArray(room?.queue) ? [...room.queue] : [];
     return list.sort((a, b) => (b.up - b.down) - (a.up - a.down));
@@ -92,34 +97,41 @@ export default function RoomDetail() {
   const notMember = !room.isMember;
 
   return (
-    <div className="space-y-6">
+    <motion.div variants={container} initial="hidden" animate="show" className="space-y-6">
       {/* Header */}
-      <div className="rounded-xl overflow-hidden shadow border border-slate-700/50">
-        <div className="p-6" style={{ background: `linear-gradient(135deg, ${theme.primary} 0%, ${theme.accent} 100%)` }}>
+      <motion.div variants={fadeUp} className="rounded-xl overflow-hidden shadow border border-[var(--border)]">
+        <div
+          className="p-6"
+          style={{
+            background: room.isPublic
+              ? publicGradient
+              : `linear-gradient(135deg, ${theme.primary} 0%, ${theme.accent} 100%)`,
+          }}
+        >
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h1 className="text-2xl font-bold text-white drop-shadow">{room.name}</h1>
-              <div className="text-slate-100/90 text-sm">{room.members?.length || 0} members · {room.isPublic ? 'Public' : 'Private'}</div>
+              <h1 className="text-2xl font-bold text-[var(--text-0)] drop-shadow">{room.name}</h1>
+              <div className="text-[var(--text-1)] text-sm">{room.members?.length || 0} members · {room.isPublic ? 'Public' : 'Private'}</div>
             </div>
             {room.isMember && (
               <div className="flex items-center gap-2">
                 {!!savedCode && (
-                  <div className="flex items-center gap-2 bg-white/10 rounded p-2">
-                    <code className="px-2 py-1 rounded bg-black/30 border border-black/20 tracking-widest text-white">{savedCode}</code>
-                    <button className="btn bg-white text-slate-900 hover:opacity-90" onClick={async () => { try { await navigator.clipboard.writeText(savedCode); } catch {} }}>Copy</button>
+                  <div className="flex items-center gap-2 rounded p-2 border border-[var(--border)] bg-[var(--panel)]">
+                    <code className="px-2 py-1 rounded bg-[var(--bg-2)] border border-[var(--border)] tracking-widest text-[var(--text-0)]">{savedCode}</code>
+                    <Button variant="secondary" size="sm" onClick={async () => { try { await navigator.clipboard.writeText(savedCode); } catch {} }}>Copy</Button>
                   </div>
                 )}
-                <button className="btn bg-white text-slate-900 hover:opacity-90" onClick={leave}>Leave Room</button>
+                <Button variant="secondary" onClick={leave}>Leave Room</Button>
               </div>
             )}
           </div>
         </div>
         {!room.isMember && (
-          <div className="px-6 py-3 bg-slate-900/60 text-slate-300 text-sm border-t border-slate-700/50">
+          <div className="px-6 py-3 bg-[var(--bg-2)] text-[var(--text-1)] text-sm border-t border-[var(--border)]">
             Join the room to add to queue and vote.
           </div>
         )}
-      </div>
+      </motion.div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Queue + Search */}
@@ -155,11 +167,10 @@ export default function RoomDetail() {
           )}
 
           {/* Queue */}
-          <div className="card">
+          <motion.div variants={fadeUp} className="card">
             <div className="flex items-center justify-between mb-3">
               <div className="font-semibold">Queue</div>
-              <button
-                className="btn btn-primary"
+              <Button
                 onClick={() => {
                   if (notMember) return;
                   if (!sortedQueue.length) return;
@@ -169,58 +180,60 @@ export default function RoomDetail() {
                 disabled={notMember || !sortedQueue.length}
               >
                 Play All
-              </button>
+              </Button>
             </div>
             <div className="space-y-2">
               {sortedQueue.map(q => (
-                <div key={q.key} className={`flex items-center gap-3 rounded-lg p-2 ${notMember ? 'bg-slate-800/40' : 'bg-slate-800/60 hover:bg-slate-700/60 transition-colors'}`}>
+                <motion.div variants={fadeUp} key={q.key} className={`flex items-center gap-3 rounded-lg p-2 ${notMember ? 'bg-[var(--panel)]' : 'bg-[var(--panel)] hover:bg-[var(--bg-2)] transition-colors'}`}>
                   <img src={q.cover} alt="cover" loading="lazy" className="w-12 h-12 rounded object-cover" />
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">{q.title}</div>
-                    <div className="text-xs text-slate-400 truncate">{q.subtitle}</div>
+                    <div className="text-xs text-[var(--text-1)] truncate">{q.subtitle}</div>
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <div className="flex items-center gap-2 text-xs text-[var(--text-1)]">
                     <span className="px-2 py-1 rounded bg-emerald-600/20">👍 {q.up}</span>
                     <span className="px-2 py-1 rounded bg-rose-600/20">👎 {q.down}</span>
                   </div>
                   <div className="flex gap-2">
-                    <button className="btn btn-secondary" onClick={() => vote(q.key, 'up')} disabled={notMember}>👍</button>
-                    <button className="btn btn-secondary" onClick={() => vote(q.key, 'down')} disabled={notMember}>👎</button>
+                    <Button variant="secondary" size="sm" onClick={() => vote(q.key, 'up')} disabled={notMember}>👍</Button>
+                    <Button variant="secondary" size="sm" onClick={() => vote(q.key, 'down')} disabled={notMember}>👎</Button>
                   </div>
-                </div>
+                </motion.div>
               ))}
-              {!sortedQueue.length && <div className="text-sm text-slate-400">No songs yet. Add one below.</div>}
+              {!sortedQueue.length && <div className="text-sm text-[var(--text-1)]">No songs yet. Add one below.</div>}
             </div>
-          </div>
+          </motion.div>
 
           
 
           {/* YouTube Search */}
-          <div className="card">
+          <motion.div variants={fadeUp} className="card">
             <div className="font-semibold mb-3">Add from YouTube</div>
             <div className="flex gap-2 mb-3">
               <input className="input flex-1" placeholder="Search YouTube (title, artist, etc.)" value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key==='Enter' && doSearch()} />
-              <button className="btn btn-primary" onClick={doSearch} disabled={searching}>{searching ? 'Searching...' : 'Search'}</button>
+              <Button onClick={doSearch} disabled={searching}>{searching ? 'Searching...' : 'Search'}</Button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1 scrollbar-thin">
               {results.map(v => (
-                <div key={v.id} className="flex items-center gap-3 bg-slate-800/50 rounded p-2">
+                <motion.div variants={fadeUp} key={v.id} className="flex items-center gap-3 bg-[var(--panel)] rounded p-2">
                   <img src={v.cover} alt="thumb" loading="lazy" className="w-12 h-12 rounded object-cover" />
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate" title={v.title}>{v.title}</div>
-                    <div className="text-xs text-slate-400 truncate" title={v.channel}>{v.channel}</div>
+                    <div className="text-xs text-[var(--text-1)] truncate" title={v.channel}>{v.channel}</div>
                   </div>
-                  <button className="btn btn-primary" onClick={() => addYT(v)} disabled={notMember}>Add</button>
-                </div>
+                  <Button onClick={() => addYT(v)} disabled={notMember}>Add</Button>
+                </motion.div>
               ))}
-              {!results.length && !searching && <div className="text-sm text-slate-400">Search to add YouTube tracks to the queue.</div>}
+              {!results.length && !searching && <div className="text-sm text-[var(--text-1)]">Search to add YouTube tracks to the queue.</div>}
             </div>
-            {notMember && <div className="mt-2 text-xs text-slate-400">Join the room to add songs.</div>}
-          </div>
+            {notMember && <div className="mt-2 text-xs text-[var(--text-1)]">Join the room to add songs.</div>}
+          </motion.div>
         </div>
         {/* Right: Chat */}
-        <Chat roomId={id} />
+        <motion.div variants={fadeUp}>
+          <Chat roomId={id} />
+        </motion.div>
       </div>
-    </div>
+    </motion.div>
   );
 }

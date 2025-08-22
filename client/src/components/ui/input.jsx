@@ -7,9 +7,9 @@ export const Input = React.forwardRef(function Input({ className, type = 'text',
       ref={ref}
       type={type}
       className={cn(
-        'flex h-10 w-full rounded-lg border border-slate-600/50 px-3 py-2 text-sm placeholder:text-slate-400 backdrop-blur-sm transition-all duration-200',
-        'bg-slate-800/80 focus:bg-slate-800/90',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 focus-visible:border-indigo-500/50',
+        'flex h-12 w-full rounded-[var(--radius)] border border-[var(--border)] px-4 py-3 text-base text-[var(--text-0)] placeholder:text-[var(--muted)] backdrop-blur-sm transition-all duration-200',
+        'bg-[var(--input-bg)] focus:bg-[var(--input-bg-focus)]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] focus-visible:border-[var(--border)]',
         'disabled:cursor-not-allowed disabled:opacity-50',
         className
       )}

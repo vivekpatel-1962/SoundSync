@@ -6,6 +6,7 @@ import './index.css';
 import App from './App.jsx';
 import { RoomProvider } from './context/RoomContext.jsx';
 import Home from './pages/Home.jsx';
+import Root from './pages/Root.jsx';
 import Rooms from './pages/Rooms.jsx';
 import RoomDetail from './pages/RoomDetail.jsx';
 import Library from './pages/Library.jsx';
@@ -32,7 +33,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <BrowserRouter>
           <App>
             <Routes>
-              <Route path="/" element={<Home />} />
+              <Route path="/" element={<Root />} />
               <Route path="/sign-in" element={<Auth />} />
               <Route path="/sign-up" element={<SignUp />} />
               <Route path="/rooms" element={<Protected><Rooms /></Protected>} />

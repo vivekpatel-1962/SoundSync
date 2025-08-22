@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import NavBar from './components/NavBar.jsx';
 import { Button } from './components/ui/button.jsx';
@@ -34,7 +34,8 @@ function PlayerProvider({ children }) {
   const uid = user?.id;
   const [queue, setQueue] = useState([]); // [{ type:'youtube', id, title, channel }]
   const [index, setIndex] = useState(-1);
-  const [current, setCurrent] = useState(null);
+  // Derive current synchronously to avoid one-tick lag that could load the previous video
+  const current = useMemo(() => (index >= 0 && index < queue.length ? queue[index] : null), [queue, index]);
   const [visible, setVisible] = useState(false);
   // Local likes/playlists (namespaced per user when signed in)
   const [ytLikes, setYtLikes] = useState(() => new Set());
@@ -97,9 +98,7 @@ function PlayerProvider({ children }) {
     return () => { cancelled = true; };
   }, [isSignedIn, uid, storageKeys]);
 
-  useEffect(() => {
-    setCurrent(index >= 0 && index < queue.length ? queue[index] : null);
-  }, [queue, index]);
+  // current is derived via useMemo above
 
 
   const next = useCallback(() => {
@@ -303,6 +302,9 @@ function MiniPlayer() {
   useEffect(() => { indexRef.current = index; }, [index]);
   const queueRef = useRef(queue);
   useEffect(() => { queueRef.current = queue; }, [queue]);
+  // Keep a ref of current id for YT event handlers to avoid stale closures
+  const currentIdRef = useRef(current?.id);
+  useEffect(() => { currentIdRef.current = current?.id; }, [current?.id]);
   const [showPl, setShowPl] = useState(false);
   const plMenuRef = useRef(null);
   const [newPl, setNewPl] = useState('');
@@ -373,7 +375,8 @@ function MiniPlayer() {
                 const s = e.data;
                 // Ignore events coming from an outdated video id (race during fast switches)
                 const vid = e?.target?.getVideoData?.().video_id;
-                if (vid && current?.id && vid !== current.id) return;
+                const curId = currentIdRef.current;
+                if (vid && curId && vid !== curId) return;
                 if (s === YT.PlayerState.PLAYING) setIsPlaying(true);
                 else if (s === YT.PlayerState.PAUSED) setIsPlaying(false);
                 else if (s === YT.PlayerState.ENDED) {
@@ -597,13 +600,13 @@ function MiniPlayer() {
       className={pos ? "fixed z-50 md:w-[520px] w-[92vw]" : "fixed bottom-4 right-4 left-4 md:left-auto md:w-[520px] z-50"}
       style={pos ? { left: pos.x, top: pos.y } : undefined}
     >
-      <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700/60 rounded-xl shadow-2xl p-3 relative select-none">
+      <div className="border border-[var(--border)] rounded-[var(--radius)] shadow-2xl ring-1 ring-black/10 p-3 md:p-4 relative select-none bg-[var(--bg-0)]">
         {/* hidden video container to stream audio */}
         <div className="absolute opacity-0 pointer-events-none w-[320px] h-[180px] -z-10">
           <div ref={containerRef} className="w-full h-full" />
         </div>
         {/* top-right close */}
-        <Button aria-label="Close player" variant="ghost" size="sm" onClick={close} className="absolute top-2 right-2 text-slate-400 hover:text-white">✕</Button>
+        <Button aria-label="Close player" variant="ghost" size="sm" onClick={close} className="absolute top-2 right-2 text-[var(--text-1)] hover:text-[var(--text-0)]">✕</Button>
         {/* Drag handle */}
         <div
           className="absolute left-0 right-10 top-0 h-6 cursor-move"
@@ -611,9 +614,9 @@ function MiniPlayer() {
           onTouchStart={startDrag}
           onDoubleClick={resetPos}
         />
-        <div className="flex gap-3 items-start">
+        <div className="flex gap-4 items-start">
           <div className="flex-1 min-w-0">
-            <div ref={titleBoxRef} className="text-white font-semibold overflow-hidden" title={current.title || 'Playing video'}>
+            <div ref={titleBoxRef} className="text-[var(--text-0)] font-semibold overflow-hidden text-base md:text-lg leading-snug" title={current.title || 'Playing video'}>
               {titleOverflow ? (
                 <div className="marquee">
                   <span className="marquee-inner">{current.title || 'Playing video'}</span>
@@ -623,7 +626,7 @@ function MiniPlayer() {
                 <div className="truncate whitespace-nowrap">{current.title || 'Playing video'}</div>
               )}
             </div>
-            {current.channel && <div className="text-sm text-slate-400 mt-1 line-clamp-1" title={current.channel}>{current.channel}</div>}
+            {current.channel && <div className="text-sm text-[var(--text-1)] mt-1 line-clamp-1" title={current.channel}>{current.channel}</div>}
             <div className="mt-2">
               <input
                 type="range"
@@ -631,9 +634,9 @@ function MiniPlayer() {
                 max={100}
                 value={pct}
                 onChange={handleSeek}
-                className="w-full accent-indigo-500"
+                className="w-full accent-[var(--brand)]"
               />
-              <div className="text-xs text-slate-400 mt-1">
+              <div className="text-xs text-[var(--text-1)] mt-1">
                 {fmt(currentTime)} / {fmt(duration)}
               </div>
             </div>
@@ -665,7 +668,8 @@ function MiniPlayer() {
                     aria-label="Add to playlist"
                     title="Add to playlist"
                     variant="outline"
-                    size="sm"
+                    size="icon"
+                    className="text-xl"
                     onClick={() => setShowPl(true)}
                   >＋</Button>
                 </div>
@@ -679,30 +683,41 @@ function MiniPlayer() {
     {showPl && (
       <div className="fixed inset-0 z-50">
         <div className="absolute inset-0 bg-black/60" onClick={() => setShowPl(false)} />
-        <div className="relative z-50 mx-auto mt-[10vh] w-[92%] max-w-sm bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-4" ref={plMenuRef}>
+        <div className="relative z-50 mx-auto mt-[10vh] w-[92%] max-w-sm bg-[var(--bg-0)] border border-[var(--border)] rounded-xl shadow-2xl p-4" ref={plMenuRef}>
           <div className="flex items-center justify-between mb-3">
-            <div className="text-white font-semibold">Add to playlist</div>
-            <button className="text-slate-400 hover:text-white" onClick={() => setShowPl(false)}>✕</button>
+            <div className="text-[var(--text-0)] font-semibold">Add to playlist</div>
+            <button className="text-[var(--text-1)] hover:text-[var(--text-0)]" onClick={() => setShowPl(false)}>✕</button>
           </div>
           <div className="max-h-64 overflow-auto space-y-1">
             {[...new Set(['liked', ...Object.keys(ytPlaylists || {})])].map(name => (
               <button
                 key={name}
-                className="block w-full text-left px-3 py-2 text-sm rounded hover:bg-slate-800 text-slate-200"
+                className="block w-full text-left px-3 py-2 text-sm rounded hover:bg-[var(--bg-1)] text-[var(--text-0)]"
                 onClick={() => { addToPlaylist(name, current); setShowPl(false); }}
               >➕ {name}</button>
             ))}
           </div>
           <div className="mt-3 flex gap-2">
             <input
-              className="flex-1 bg-slate-800/70 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+              className="flex-1 h-9 bg-[var(--bg-0)] border border-[var(--border)] rounded px-3 text-sm text-[var(--text-0)] placeholder:text-[var(--text-1)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]"
               placeholder="New playlist name"
               value={newPl}
               onChange={(e) => setNewPl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const name = (newPl || '').trim();
+                  if (!name) return;
+                  addToPlaylist(name, current);
+                  setNewPl('');
+                  setShowPl(false);
+                }
+              }}
             />
             <Button
               variant="secondary"
               size="sm"
+              className="h-9 text-sm"
+              disabled={!((newPl || '').trim())}
               onClick={() => {
                 const name = (newPl || '').trim();
                 if (!name) return;
@@ -733,9 +748,9 @@ export default function App({ children }) {
           </div>
         </main>
         <MiniPlayer />
-        <footer className="text-center text-sm text-slate-400 py-6 border-t border-slate-700/50 backdrop-blur-sm bg-slate-900/50">
+        <footer className="text-center text-base text-[var(--text-1)] py-6 border-t border-[var(--border)] backdrop-blur-md bg-[var(--bg-1)]">
           <div className="container mx-auto px-4">
-            Built with ♥ for music lovers. <Link className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2" to="/settings">Settings</Link>
+            Built with ♥ for music lovers. <Link className="text-[var(--text-1)] hover:text-[var(--text-0)] underline underline-offset-2" to="/settings">Settings</Link>
           </div>
         </footer>
       </div>

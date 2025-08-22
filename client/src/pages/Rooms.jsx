@@ -1,7 +1,10 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { motion } from 'framer-motion';
 import { api } from '../services/api.js';
 import { Link, useNavigate } from 'react-router-dom';
 import { useUser } from '@clerk/clerk-react';
+import { Button } from '../components/ui/button.jsx';
+import { container, fadeUp } from '../lib/motionPresets.js';
 
 export default function Rooms() {
   const [rooms, setRooms] = useState([]);
@@ -53,64 +56,64 @@ export default function Rooms() {
   const recommendedRooms = useMemo(() => rooms.filter(r => r.isPublic && !r.isMember), [rooms]);
 
   return (
-    <div className="space-y-6">
+    <motion.div variants={container} initial="hidden" animate="show" className="space-y-6">
       {/* Create Room */}
-      <div className="card">
+      <motion.div variants={fadeUp} className="card">
         <div className="font-semibold mb-2">Create Room</div>
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col md:flex-row gap-3">
-            <input className="input" placeholder="Room name" value={name} onChange={e => setName(e.target.value)} />
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={isPublic} onChange={e => setIsPublic(e.target.checked)} /> Public
-            </label>
-            <button className="btn btn-primary" onClick={create}>Create</button>
-          </div>
+        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] items-center">
+          <input className="input w-full" placeholder="Room name" value={name} onChange={e => setName(e.target.value)} />
+          <label className="flex items-center gap-2 text-sm whitespace-nowrap">
+            <input type="checkbox" checked={isPublic} onChange={e => setIsPublic(e.target.checked)} /> Public
+          </label>
+          <Button onClick={create} className="md:justify-self-end">Create</Button>
         </div>
-      </div>
+      </motion.div>
 
       {/* Join by code */}
-      <div className="card">
+      <motion.div variants={fadeUp} className="card">
         <div className="font-semibold mb-2">Join a Private Room</div>
-        <div className="flex flex-col md:flex-row gap-3">
-          <input className="input" placeholder="Enter code (e.g., 8 chars)" value={joinCode} onChange={e => setJoinCode(e.target.value)} onKeyDown={e => e.key==='Enter' && joinByCode()} />
-          <button className="btn btn-primary" onClick={joinByCode}>Join</button>
+        <div className="grid gap-3 md:grid-cols-[1fr_auto] items-center">
+          <input className="input w-full" placeholder="Enter code (e.g., 8 chars)" value={joinCode} onChange={e => setJoinCode(e.target.value)} onKeyDown={e => e.key==='Enter' && joinByCode()} />
+          <Button onClick={joinByCode} className="md:justify-self-end">Join</Button>
         </div>
-      </div>
+      </motion.div>
 
       {/* Your Rooms */}
-      <div className="space-y-2">
-        <div className="text-sm uppercase tracking-wide text-slate-400">Your Rooms</div>
+      <motion.div variants={fadeUp} className="space-y-2">
+        <div className="text-sm uppercase tracking-wide text-[var(--text-1)]">Your Rooms</div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {yourRooms.map(r => (
-            <Link key={r.id} to={`/rooms/${r.id}`} className="card hover:border-primary/50">
-              <div className="font-semibold">{r.name}</div>
-              <div className="text-sm text-slate-400">{r.size} members</div>
-              <div className="mt-2 text-xs">
-                <span className="text-emerald-400">Member</span>
-              </div>
-            </Link>
+            <motion.div variants={fadeUp} key={r.id} className="h-full">
+              <Link to={`/rooms/${r.id}`} className="card block h-full hover:border-primary/50">
+                <div className="font-semibold">{r.name}</div>
+                <div className="text-sm text-[var(--text-1)]">{r.size} members</div>
+                <div className="mt-2 text-xs">
+                  <span className="text-emerald-400">{r.isPublic ? 'Public' : 'Private'}</span>
+                </div>
+              </Link>
+            </motion.div>
           ))}
-          {!yourRooms.length && <div className="text-sm text-slate-400">You haven't joined any rooms yet.</div>}
+          {!yourRooms.length && <div className="text-sm text-[var(--text-1)] md:col-span-3">You haven't joined any rooms yet.</div>}
         </div>
-      </div>
+      </motion.div>
 
       {/* Recommended Rooms (Public) */}
-      <div className="space-y-2">
-        <div className="text-sm uppercase tracking-wide text-slate-400">Recommended (Public)</div>
+      <motion.div variants={fadeUp} className="space-y-2">
+        <div className="text-sm uppercase tracking-wide text-[var(--text-1)]">Recommended (Public)</div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {recommendedRooms.map(r => (
-            <div key={r.id} className="card hover:border-primary/50">
+            <motion.div variants={fadeUp} key={r.id} className="card hover:border-primary/50">
               <div className="font-semibold">{r.name}</div>
-              <div className="text-sm text-slate-400">{r.size} members</div>
+              <div className="text-sm text-[var(--text-1)]">{r.size} members</div>
               <div className="mt-2 text-xs text-emerald-400">Public</div>
               <div className="mt-3">
-                <button className="btn btn-primary w-full" onClick={() => joinPublic(r.id)}>Join</button>
+                <Button className="w-full" onClick={() => joinPublic(r.id)}>Join</Button>
               </div>
-            </div>
+            </motion.div>
           ))}
-          {!recommendedRooms.length && <div className="text-sm text-slate-400">No public rooms available right now.</div>}
+          {!recommendedRooms.length && <div className="text-sm text-[var(--text-1)]">No public rooms available right now.</div>}
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

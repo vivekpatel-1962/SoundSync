@@ -141,12 +141,12 @@ export default function Player() {
             <img src={thumb} alt="cover" className="w-20 h-20 rounded-md object-cover" />
             <div className="flex-1">
               <div className="font-semibold">{ytMeta.title}</div>
-              <div className="text-sm text-slate-400">{ytMeta.channel}</div>
-              <div className="h-2 bg-slate-700 rounded mt-2">
-                <div className="h-2 bg-primary rounded" style={{ width: `${ytProgress}%` }} />
+              <div className="text-sm text-[var(--text-1)]">{ytMeta.channel}</div>
+              <div className="h-2 bg-[var(--bg-2)] rounded mt-2">
+                <div className="h-2 rounded bg-[var(--brand)]" style={{ width: `${ytProgress}%` }} />
               </div>
               {!ytReady && !ytError && (
-                <div className="text-xs text-slate-400 mt-1">Loading player...</div>
+                <div className="text-xs text-[var(--text-1)] mt-1">Loading player...</div>
               )}
               {ytError && (
                 <div className="text-xs text-red-400 mt-1">{ytError}</div>
@@ -173,7 +173,7 @@ export default function Player() {
         </div>
         <aside className="space-y-2">
           <div className="font-semibold">Up Next</div>
-          <div className="text-sm text-slate-400">Select more from search to build a queue (coming soon)</div>
+          <div className="text-sm text-[var(--text-1)]">Select more from search to build a queue (coming soon)</div>
         </aside>
       </div>
     );
@@ -210,11 +210,11 @@ export default function Player() {
         <div className="font-semibold">Up Next</div>
         <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1 scrollbar-thin">
           {songs.map((s, i) => (
-            <div key={s.id} className={`flex items-center gap-3 p-2 rounded ${s.id===current.id? 'bg-primary/20' : 'bg-slate-800/50'}`}>
+            <div key={s.id} className={`flex items-center gap-3 p-2 rounded ${s.id===current.id? 'bg-primary/20' : 'bg-[var(--panel)]'}`}>
               <img src={s.cover} alt="cover" className="w-12 h-12 rounded object-cover" />
               <div className="flex-1">
                 <div className="font-medium">{s.title}</div>
-                <div className="text-xs text-slate-400">{s.artist}</div>
+                <div className="text-xs text-[var(--text-1)]">{s.artist}</div>
               </div>
               <button className="btn btn-secondary" onClick={() => setIdx(i)}>Play</button>
             </div>

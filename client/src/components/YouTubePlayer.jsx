@@ -113,9 +113,9 @@ export default function YouTubePlayer({ videoId, cover, title, artist, autoPlay 
       <img src={cover} alt="cover" className="w-20 h-20 rounded-md object-cover" />
       <div className="flex-1">
         <div className="font-semibold">{title}</div>
-        <div className="text-sm text-slate-400">{artist}</div>
-        <div className="h-2 bg-slate-700 rounded mt-2">
-          <div className="h-2 bg-primary rounded" style={{ width: `${progress}%` }} />
+        <div className="text-sm text-[var(--text-1)]">{artist}</div>
+        <div className="h-2 rounded mt-2 bg-[var(--bg-2)]">
+          <div className="h-2 rounded bg-[var(--brand)]" style={{ width: `${progress}%` }} />
         </div>
       </div>
       <div className="flex items-center gap-2">
