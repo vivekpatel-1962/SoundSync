@@ -1,4 +1,4 @@
-# Moodcast – Music Streaming Prototype
+# Moodcast – Music Streaming Platform
 
 A full-stack prototype with React + Tailwind on the frontend and Node.js/Express + Socket.IO on the backend. Uses in-memory sample data and mock auth.
 
