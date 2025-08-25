@@ -1,6 +1,6 @@
 # Moodcast – Music Streaming Platform
 
-A full-stack prototype with React + Tailwind on the frontend and Node.js/Express + Socket.IO on the backend. Uses in-memory sample data and mock auth.
+A full-stack project with React + Tailwind on the frontend and Node.js/Express + Socket.IO on the backend. Uses in-memory sample data and mock auth.
 
 ## Features
 - Email/password + social via Clerk (client-side auth)
