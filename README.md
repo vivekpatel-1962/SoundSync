@@ -1,59 +1,88 @@
-# Moodcast – Music Streaming Platform
+# 🎶 Moodcast
 
-A full-stack project with React + Tailwind on the frontend and Node.js/Express + Socket.IO on the backend. Uses in-memory sample data and mock auth.
+Moodcast is a **full-stack music streaming platform** that empowers users to discover, share, and listen to music collaboratively. It features real-time music rooms, recommendations powered by ML, YouTube integration, and a sleek, responsive UI.
 
-## Features
-- Email/password + social via Clerk (client-side auth)
-- Homepage recommendations (sample data)
-- Music Rooms with real-time queue & voting via Socket.IO
-- Pair/Couple mode with theme and combined recommendations
-- Player with controls and lyrics (static and karaoke-style)
-- Simulated downloads for playlists/songs
-- YouTube search proxy endpoint
-- Optional room chat
-- Modern UI with Tailwind, responsive layout
+## ✨ Unique Features
 
-## Structure
-- `server/`: Express REST API + Socket.IO + sample data
-- `client/`: React app using Vite, Tailwind, React Router, Socket.IO client
+- **Real-Time Music Rooms**: Create and join rooms with collaborative song queues, voting, and live chat powered by Socket.IO.
+- **YouTube Integration**: Search, play, and manage YouTube tracks directly within the app.
+- **Simulated Downloads**: Download playlists and songs for offline use (simulated for demo purposes).
 
-## Quick Start
-0) Clerk setup (auth)
-   - Create a Clerk app at https://dashboard.clerk.com and copy the Publishable Key.
-   - Set it in `client/.env.local` as `VITE_CLERK_PUBLISHABLE_KEY=pk_...` (we created this file for you).
+## 🚀 Features
 
-1) Install root helper deps and project deps
-```
-npm install
-npm run install:all
-```
+- Secure authentication via Clerk (supports email/password and social login).
+- Homepage with personalized music recommendations.
+- Room management: create, join, leave, and customize music rooms.
+- Song queueing and voting in real time.
+- Lyrics display
+- Playlist and library management.
+- Optional room chat for communication.
+- Modern, responsive UI with TailwindCSS.
 
-2) Start both dev servers (server on 4000, client on 5173 with proxy)
-```
-npm run dev
-```
+## 🛠️ Technologies Used
 
-3) Open the app: http://localhost:5173
+- **Frontend**: React, Vite, TailwindCSS, React Router, Socket.IO client, Clerk (auth)
+- **Backend**: Node.js, Express, Socket.IO, sample/mock data, optional MongoDB
+- **Integration**: YouTube Data API (proxy endpoint), Python ML for recommendations
 
-## API (selected)
-- `GET /api/recommendations`
-- `GET /api/rooms` | `POST /api/rooms`
-- `GET /api/rooms/:id`
-- `POST /api/rooms/:id/join` { userId }
-- `POST /api/rooms/:id/queue` { songId, userId }
-- `POST /api/rooms/:id/vote` { songId, userId, vote: 'up'|'down' }
-- `POST /api/pair` { userIdA, userIdB }
-- `GET /api/playlists`
-- `GET /api/songs/:id/lyrics`
-- `GET /api/yt/search?q=QUERY` (YouTube search proxy)
+## 📖 How to Use
 
-## Notes
-- Auth UI is powered by Clerk on the client. The backend still uses mock/in-memory users and only reads `x-user-id` header for demo purposes. There is no JWT/session verification yet.
-- In-memory data resets when the server restarts
-- YouTube API proxy is available at `GET /api/yt/search`. Set `YOUTUBE_API_KEY=...` in `server/.env`.
+1. **Clone the repository.**
 
-## Auth routes
-- Sign in: `/sign-in`
-- Sign up: `/sign-up`
-- Protected routes: `/rooms`, `/rooms/:id`, `/player`, `/library`, `/settings`
+2. **Set up Clerk authentication:**
+   - Create a Clerk app at [https://dashboard.clerk.com](https://dashboard.clerk.com).
+   - Copy your Publishable Key and add it to `client/.env.local`:
+     ```
+     VITE_CLERK_PUBLISHABLE_KEY=pk_...
+     ```
 
+3. **Set up MongoDB (optional, for persistent data):**
+   - Install and start MongoDB locally, or use a cloud provider like MongoDB Atlas.
+   - In `server/.env`, add your connection string:
+     ```
+     MONGO_URI=mongodb://localhost:27017/moodcast
+     ```
+   - If MongoDB is not configured, the app will use in-memory storage (data will reset each server restart).
+
+4. **(Optional) Configure YouTube API Key in `server/.env`:**
+   ```
+   YOUTUBE_API_KEY=your_key
+   ```
+
+5. **Install dependencies:**
+   ```
+   npm install
+   npm run install:all
+   ```
+
+6. **Start development servers:**
+   ```
+   npm run dev
+   ```
+   - Backend: `http://localhost:4000`
+   - Frontend: `http://localhost:5173`
+
+7. **Open the app:**  
+   Go to [http://localhost:5173](http://localhost:5173) in your browser.
+
+---
+
+
+## 📚 API Endpoints
+
+- `GET /api/recommendations` – Get music recommendations
+- `GET /api/rooms` / `POST /api/rooms` – List/create rooms
+- `POST /api/rooms/:id/join` – Join a room
+- `POST /api/rooms/:id/queue` – Add song to queue
+- `POST /api/rooms/:id/vote` – Vote on songs
+- `GET /api/playlists` – Fetch playlists
+- `GET /api/songs/:id/lyrics` – Get song lyrics
+- `GET /api/yt/search?q=QUERY` – YouTube search
+
+## 🤝 Contributing
+
+Feel free to submit a pull request or open an issue for suggestions and improvements.
+
+---
+
+Happy listening & coding! 🎵🚀
