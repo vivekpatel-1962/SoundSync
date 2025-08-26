@@ -79,14 +79,15 @@ def main():
 
     # Features
     X = build_features(df)
-    y = df["liked"].astype(float)
+    y = df["liked"]
 
-    # If user hasn't liked anything yet, fallback by recommending by duration (longer first) as a trivial baseline
+    # If user hasn't liked anything yet, do not fabricate recommendations
     if y.sum() == 0:
-        # Recommend top_k by longest duration (exclude ones already liked — none in this case)
-        order = X.assign(song_id=df["id"]).sort_values("duration_seconds", ascending=False)["song_id"].tolist()
-        recs = order[:top_k]
-        print(json.dumps({"recommended_ids": recs, "metrics": {"mse": None, "r2": None}, "note": "No likes found; used simple baseline."}))
+        print(json.dumps({
+            "recommended_ids": [],
+            "metrics": {"mse": None, "r2": None},
+            "note": "User hasn't liked any songs yet."
+        }))
         return 0
 
     # Train/Test split (beginner-friendly default)

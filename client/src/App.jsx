@@ -640,7 +640,7 @@ function MiniPlayer() {
                 {fmt(currentTime)} / {fmt(duration)}
               </div>
             </div>
-            <div className="mt-3 flex gap-2 items-center">
+            <div className="mt-3 flex flex-wrap md:flex-nowrap gap-2 items-center justify-center md:justify-start">
               <Button aria-label="Previous" title="Previous" variant="outline" size="sm" onClick={prev} disabled={!canPrev}>⏮</Button>
               <Button aria-label="Rewind 10 seconds" title="Rewind 10 seconds" variant="outline" size="sm" onClick={() => seekBy(-10)}>⏪</Button>
               <Button aria-label={isPlaying ? 'Pause' : 'Play'} title={isPlaying ? 'Pause' : 'Play'} variant="secondary" size="sm" onClick={toggle}>{isPlaying ? '⏸' : '▶'}</Button>

@@ -28,45 +28,52 @@ Moodcast is a **full-stack music streaming platform** that empowers users to dis
 ## 📖 How to Use
 
 1. **Clone the repository.**
-
-2. **Set up Clerk authentication:**
-   - Create a Clerk app at [https://dashboard.clerk.com](https://dashboard.clerk.com).
-   - Copy your Publishable Key and add it to `client/.env.local`:
-     ```
+2. **Configure environment variables:**
+   - Clerk (frontend auth): create a Clerk app at [https://dashboard.clerk.com](https://dashboard.clerk.com) and add to `client/.env.local`:
+     ```env
      VITE_CLERK_PUBLISHABLE_KEY=pk_...
+     # When deploying client and server on different domains, set:
+     # VITE_API_BASE=https://your-server.example.com
+     ```
+   - MongoDB (optional persistence): in `server/.env`:
+     ```env
+     MONGODB_URI=mongodb://localhost:27017
+     MONGODB_DB=moodcast
+     ```
+     If not set, the server will use in-memory storage (data resets on restart).
+   - YouTube API keys (enable search/recs from YouTube): in `server/.env` add either a single key or CSV list for round-robin + cooldown on quota:
+     ```env
+     # Either provide one key
+     YOUTUBE_API_KEY=YOUR_YOUTUBE_DATA_API_V3_KEY
+     # Or provide multiple keys (comma-separated)
+     # YOUTUBE_API_KEYS=key1,key2,key3
+     # Optional tuning (defaults shown)
+     YT_KEY_COOLDOWN_MS=3600000
+     YT_CACHE_TTL_MS=0
+     # Recommendation filtering (defaults shown)
+     REC_CACHE_TTL_MS=600000
+     RECS_MUSIC_ONLY=1
+     RECS_MIN_SEC=60
+     RECS_MAX_SEC=900
      ```
 
-3. **Set up MongoDB (optional, for persistent data):**
-   - Install and start MongoDB locally, or use a cloud provider like MongoDB Atlas.
-   - In `server/.env`, add your connection string:
-     ```
-     MONGO_URI=mongodb://localhost:27017/moodcast
-     ```
-   - If MongoDB is not configured, the app will use in-memory storage (data will reset each server restart).
-
-4. **(Optional) Configure YouTube API Key in `server/.env`:**
-   ```
-   YOUTUBE_API_KEY=your_key
-   ```
-
-5. **Install dependencies:**
-   ```
+3. **Install dependencies:**
+   ```bash
    npm install
    npm run install:all
    ```
 
-6. **Start development servers:**
-   ```
+4. **Start development servers:**
+   ```bash
    npm run dev
    ```
    - Backend: `http://localhost:4000`
    - Frontend: `http://localhost:5173`
 
-7. **Open the app:**  
+5. **Open the app:**
    Go to [http://localhost:5173](http://localhost:5173) in your browser.
 
 ---
-
 
 ## 📚 API Endpoints
 

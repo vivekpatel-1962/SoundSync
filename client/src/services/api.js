@@ -19,12 +19,15 @@ const baseHeaders = () => {
   return headers;
 };
 
+// Optional API base for production when frontend and backend are on different domains
+const API_BASE = (import.meta.env?.VITE_API_BASE || '');
+
 const request = async (path, options = {}) => {
   const { timeoutMs = 5000, ...rest } = options;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`/api${path}`, {
+    const res = await fetch(`${API_BASE}/api${path}`, {
       headers: { ...baseHeaders(), ...(rest.headers || {}) },
       signal: controller.signal,
       ...rest
@@ -43,7 +46,7 @@ export const api = {
   post: (path, body, opts) => request(path, { method: 'POST', body: JSON.stringify(body || {}), timeoutMs: 5000, ...(opts || {}) }),
   delete: (path, opts) => request(path, { method: 'DELETE', timeoutMs: 5000, ...(opts || {}) }),
   download: async (path, filename) => {
-    const res = await fetch(`/api${path}`, { headers: baseHeaders() });
+    const res = await fetch(`${API_BASE}/api${path}`, { headers: baseHeaders() });
     const text = await res.text();
     const blob = new Blob([text], { type: 'application/json' });
     const url = URL.createObjectURL(blob);

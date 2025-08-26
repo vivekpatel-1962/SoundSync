@@ -4,6 +4,8 @@ node_modules/
 # Builds
 /dist/
 /build/
+client/dist/
+/build/
 /.cache/
 /.parcel-cache/
 /.vite/
@@ -19,6 +21,10 @@ client/.env
 client/.env.*
 server/.env
 server/.env.*
+# But keep example env files tracked
+!.env.example
+!client/.env.example
+!server/.env.example
 
 # Tooling
 .eslintcache

@@ -27,6 +27,8 @@ import {
 } from './sampleData.js';
 import { createPlaylist, addSongToPlaylist, removeSongFromPlaylist, deletePlaylist } from './sampleData.js';
 
+import { ytFetch, ytSearch, ytVideos, keysInfo } from './ytClient.js';
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -201,8 +203,8 @@ app.get('/api/recommendations', async (req, res) => {
     ytTracks = Array.isArray(likedList) ? likedList : [];
   } catch {}
 
-  const key = process.env.YOUTUBE_API_KEY;
-  const useYouTube = key && ytLikes.length > 0;
+  const hasYTKeys = (keysInfo().length > 0);
+  const useYouTube = hasYTKeys && ytLikes.length > 0;
   let quotaHit = false;
   const cachedAny = recCache.get(cacheKey); // may be stale
 
@@ -214,9 +216,7 @@ app.get('/api/recommendations', async (req, res) => {
         // 1) Details for liked
         let likedItems = [];
         if (likedIds.length) {
-          const p = new URLSearchParams({ key, part: 'snippet,contentDetails', id: likedIds.join(',') }).toString();
-          const url = `https://www.googleapis.com/youtube/v3/videos?${p}`;
-          const details = await httpGetJson(url);
+          const details = await ytVideos({ part: 'snippet,contentDetails', id: likedIds.join(',') });
           likedItems = (details.items || []).map(it => ({
             id: it.id,
             title: it.snippet?.title || 'YouTube',
@@ -235,10 +235,8 @@ app.get('/api/recommendations', async (req, res) => {
         const relatedIdSet = new Set();
         const seedIds = likedIds.slice(0, Math.min(5, likedIds.length));
         for (const seed of seedIds) {
-          const sp = new URLSearchParams({ key, part: 'snippet', type: 'video', maxResults: '10', relatedToVideoId: seed, videoDuration: RECS_MUSIC_ONLY ? 'medium' : 'any' }).toString();
-          const sUrl = `https://www.googleapis.com/youtube/v3/search?${sp}`;
           try {
-            const js = await httpGetJson(sUrl);
+            const js = await ytSearch({ part: 'snippet', type: 'video', maxResults: '10', relatedToVideoId: seed, videoDuration: RECS_MUSIC_ONLY ? 'medium' : 'any' });
             (js.items || []).forEach(it => {
               const vid = it.id?.videoId;
               if (vid && !likedIds.includes(vid)) relatedIdSet.add(vid);
@@ -248,9 +246,7 @@ app.get('/api/recommendations', async (req, res) => {
         const relatedIds = Array.from(relatedIdSet).slice(0, Math.max(0, topK * 3));
         let relatedItems = [];
         if (relatedIds.length) {
-          const p2 = new URLSearchParams({ key, part: 'snippet,contentDetails', id: relatedIds.join(',') }).toString();
-          const url2 = `https://www.googleapis.com/youtube/v3/videos?${p2}`;
-          const details2 = await httpGetJson(url2);
+          const details2 = await ytVideos({ part: 'snippet,contentDetails', id: relatedIds.join(',') });
           relatedItems = (details2.items || []).map(it => ({
             id: it.id,
             title: it.snippet?.title || 'YouTube',
@@ -303,17 +299,7 @@ app.get('/api/recommendations', async (req, res) => {
       const channels = Array.from(new Set((ytTracks || []).map(t => t.channel).filter(Boolean))).slice(0, 3);
       const candidateIds = new Set(ytLikes);
       const addSearch = async (q) => {
-        const params = new URLSearchParams({
-          key,
-          part: 'snippet',
-          type: 'video',
-          maxResults: '20',
-          videoEmbeddable: 'true',
-          videoDuration: RECS_MUSIC_ONLY ? 'medium' : 'any',
-          q
-        }).toString();
-        const url = `https://www.googleapis.com/youtube/v3/search?${params}`;
-        const json = await httpGetJson(url);
+        const json = await ytSearch({ part: 'snippet', type: 'video', maxResults: '20', videoEmbeddable: 'true', videoDuration: RECS_MUSIC_ONLY ? 'medium' : 'any', q });
         (json.items || []).forEach(it => { const vid = it.id?.videoId; if (vid) candidateIds.add(vid); });
       };
       for (const c of channels) { await addSearch(c); }
@@ -321,9 +307,7 @@ app.get('/api/recommendations', async (req, res) => {
 
       const allIds = Array.from(candidateIds).slice(0, 50);
       if (allIds.length === 0) throw new Error('no-candidates');
-      const params2 = new URLSearchParams({ key, part: 'snippet,contentDetails', id: allIds.join(',') }).toString();
-      const url2 = `https://www.googleapis.com/youtube/v3/videos?${params2}`;
-      const details = await httpGetJson(url2);
+      const details = await ytVideos({ part: 'snippet,contentDetails', id: allIds.join(',') });
       let items = (details.items || []).map(it => ({
         id: it.id,
         title: it.snippet?.title || 'YouTube',
@@ -737,8 +721,8 @@ app.get('/api/songs', (req, res) => {
 // GET /api/yt/search?q=QUERY
 app.get('/api/yt/search', (req, res) => {
   const q = (req.query.q || '').toString();
-  const key = process.env.YOUTUBE_API_KEY;
-  if (!key) return res.status(500).json({ error: 'YOUTUBE_API_KEY not set on server' });
+  const hasYTKeys = keysInfo().length > 0;
+  if (!hasYTKeys) return res.status(500).json({ error: 'YouTube API keys not configured' });
   if (!q) return res.status(400).json({ error: 'Missing query parameter q' });
 
   const musicOnlyParam = (req.query.musicOnly || '1').toString().toLowerCase();
@@ -773,17 +757,16 @@ app.get('/api/yt/search', (req, res) => {
     return h * 3600 + mn * 60 + s;
   }
 
-  const params = new URLSearchParams({
-    key,
+  const searchParams = {
     part: 'snippet',
     type: 'video',
     maxResults: '20',
     videoEmbeddable: 'true',
-    q
-  }).toString();
+    q,
+    ...(musicOnly ? { videoDuration: 'medium' } : {})
+  };
 
-  const url = `https://www.googleapis.com/youtube/v3/search?${params}`;
-  httpGetJson(url)
+  ytSearch(searchParams)
     .then(async (json) => {
       const items = (json.items || []).map(it => ({
         id: it.id?.videoId,
@@ -800,11 +783,9 @@ app.get('/api/yt/search', (req, res) => {
 
       // Fetch details for category and duration filtering
       const ids = items.map(x => x.id).slice(0, 50);
-      const params2 = new URLSearchParams({ key, part: 'snippet,contentDetails', id: ids.join(',') }).toString();
-      const url2 = `https://www.googleapis.com/youtube/v3/videos?${params2}`;
 
       try {
-        const details = await httpGetJson(url2);
+        const details = await ytVideos({ part: 'snippet,contentDetails', id: ids.join(',') });
         const meta = new Map(details.items.map(it => [it.id, { cat: it.snippet?.categoryId, dur: iso8601ToSeconds(it.contentDetails?.duration) }]));
         const filtered = items.filter(it => {
           const m = meta.get(it.id);
@@ -833,44 +814,40 @@ app.get('/api/yt/search', (req, res) => {
 // GET /api/yt/videos?ids=ID1,ID2,...
 app.get('/api/yt/videos', (req, res) => {
   const ids = (req.query.ids || '').toString();
-  const key = process.env.YOUTUBE_API_KEY;
-  if (!key) return res.status(500).json({ error: 'YOUTUBE_API_KEY not set on server' });
+  const hasYTKeys = keysInfo().length > 0;
+  if (!hasYTKeys) return res.status(500).json({ error: 'YouTube API keys not configured' });
   if (!ids) return res.status(400).json({ error: 'Missing query parameter ids' });
-
-  const params = new URLSearchParams({
-    key,
-    part: 'snippet,contentDetails',
-    id: ids
-  }).toString();
-
-  const url = `https://www.googleapis.com/youtube/v3/videos?${params}`;
-  https.get(url, (ytRes) => {
-    let data = '';
-    ytRes.on('data', chunk => { data += chunk; });
-    ytRes.on('end', () => {
-      try {
-        if (ytRes.statusCode && ytRes.statusCode >= 400) {
-          return res.status(ytRes.statusCode).send(data);
-        }
-        const json = JSON.parse(data);
-        const items = (json.items || []).map(it => ({
-          id: it.id,
-          title: it.snippet?.title,
-          channel: it.snippet?.channelTitle,
-          description: it.snippet?.description,
-          thumbnails: it.snippet?.thumbnails,
-          duration: it.contentDetails?.duration
-        }));
-        res.json({ items });
-      } catch (e) {
-        res.status(502).json({ error: 'Failed to parse YouTube response' });
-      }
+  ytVideos({ part: 'snippet,contentDetails', id: ids })
+    .then(json => {
+      const items = (json.items || []).map(it => ({
+        id: it.id,
+        title: it.snippet?.title,
+        channel: it.snippet?.channelTitle,
+        description: it.snippet?.description,
+        thumbnails: it.snippet?.thumbnails,
+        duration: it.contentDetails?.duration
+      }));
+      res.json({ items });
+    })
+    .catch(err => {
+      console.error('YouTube videos request failed:', err?.message || String(err));
+      const status = err?.status && Number.isInteger(err.status) ? err.status : 502;
+      res.status(status).json({ error: 'YouTube request failed' });
     });
-  }).on('error', (err) => {
-    console.error('YouTube videos request failed:', err?.message);
-    res.status(502).json({ error: 'YouTube request failed' });
-  });
 });
+
+// --- Admin: YouTube keys status (optional) ---
+const YT_KEYS_ADMIN_FLAG = (process.env.YT_KEYS_ADMIN || '0').toString().toLowerCase();
+const YT_KEYS_ADMIN = ['1', 'true', 'yes', 'on'].includes(YT_KEYS_ADMIN_FLAG);
+if (YT_KEYS_ADMIN) {
+  app.get('/api/admin/yt-keys', (req, res) => {
+    try {
+      res.json({ keys: keysInfo() });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to load key info' });
+    }
+  });
+}
 
 // --- User-specific YouTube likes and playlists (MongoDB-backed) ---
 function getUid(req) {
