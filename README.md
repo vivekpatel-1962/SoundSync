@@ -1,6 +1,6 @@
-# 🎶 Moodcast
+# 🎶 SoundSync
 
-Moodcast is a **full-stack music streaming platform** that empowers users to discover, share, and listen to music collaboratively. It features real-time music rooms, recommendations powered by ML, YouTube integration, and a sleek, responsive UI.
+Soundsync is a **full-stack music streaming platform** that empowers users to discover, share, and listen to music collaboratively. It features real-time music rooms, recommendations powered by ML, YouTube integration, and a sleek, responsive UI.
 
 ## ✨ Unique Features
 
