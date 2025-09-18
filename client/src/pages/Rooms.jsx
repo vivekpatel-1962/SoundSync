@@ -81,7 +81,25 @@ export default function Rooms() {
       {/* Your Rooms */}
       <motion.div variants={fadeUp} className="space-y-2">
         <div className="text-sm uppercase tracking-wide text-[var(--text-1)]">Your Rooms</div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Mobile: square tiles (smaller) */}
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3 md:hidden">
+          {yourRooms.map(r => (
+            <motion.div variants={fadeUp} key={r.id}>
+              <Link to={`/rooms/${r.id}`} className="block aspect-square rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--panel)] hover:bg-[var(--bg-2)] shadow">
+                <div className="aspect-inner p-2 flex flex-col">
+                  <div className="text-xs font-semibold leading-tight line-clamp-2" title={r.name}>{r.name}</div>
+                  <div className="mt-auto text-[10px] text-[var(--text-1)] flex items-center justify-between">
+                    <span>{r.size} mem</span>
+                    <span className="text-emerald-400">{r.isPublic ? 'Public' : 'Private'}</span>
+                  </div>
+                </div>
+              </Link>
+            </motion.div>
+          ))}
+          {!yourRooms.length && <div className="text-sm text-[var(--text-1)] col-span-2 sm:col-span-3">You haven't joined any rooms yet.</div>}
+        </div>
+        {/* Desktop: original list cards */}
+        <div className="hidden md:grid md:grid-cols-3 gap-4">
           {yourRooms.map(r => (
             <motion.div variants={fadeUp} key={r.id} className="h-full">
               <Link to={`/rooms/${r.id}`} className="card block h-full hover:border-primary/50">
@@ -100,7 +118,29 @@ export default function Rooms() {
       {/* Recommended Rooms (Public) */}
       <motion.div variants={fadeUp} className="space-y-2">
         <div className="text-sm uppercase tracking-wide text-[var(--text-1)]">Recommended (Public)</div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Mobile: square tiles that join on tap (smaller) */}
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3 md:hidden">
+          {recommendedRooms.map(r => (
+            <motion.button
+              type="button"
+              variants={fadeUp}
+              key={r.id}
+              onClick={() => joinPublic(r.id)}
+              className="aspect-square rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--panel)] hover:bg-[var(--bg-2)] shadow text-left"
+            >
+              <div className="aspect-inner p-2 flex flex-col">
+                <div className="text-xs font-semibold leading-tight line-clamp-2" title={r.name}>{r.name}</div>
+                <div className="mt-auto text-[10px] text-[var(--text-1)] flex items-center justify-between">
+                  <span>{r.size} mem</span>
+                  <span className="text-emerald-400">Public</span>
+                </div>
+              </div>
+            </motion.button>
+          ))}
+          {!recommendedRooms.length && <div className="text-sm text-[var(--text-1)] col-span-2 sm:col-span-3">No public rooms available right now.</div>}
+        </div>
+        {/* Desktop: original cards */}
+        <div className="hidden md:grid md:grid-cols-3 gap-4">
           {recommendedRooms.map(r => (
             <motion.div variants={fadeUp} key={r.id} className="card hover:border-primary/50">
               <div className="font-semibold">{r.name}</div>

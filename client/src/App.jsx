@@ -317,6 +317,23 @@ function MiniPlayer() {
   });
   const draggingRef = useRef({ active: false, dx: 0, dy: 0 });
 
+  // Mobile detection to switch to bottom-docked layout and larger touch targets
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const apply = () => setIsMobile(!!mq.matches);
+    apply();
+    try { mq.addEventListener('change', apply); } catch { mq.addListener(apply); }
+    return () => { try { mq.removeEventListener('change', apply); } catch { mq.removeListener(apply); } };
+  }, []);
+
+  // Fullscreen mobile player state
+  const [expanded, setExpanded] = useState(false);
+  // Auto-open fullscreen when becoming visible on mobile
+  useEffect(() => {
+    if (isMobile && visible && current) setExpanded(true);
+  }, [isMobile, visible, current?.id]);
+
   useEffect(() => {
     if (!showPl) return;
     const onDoc = (e) => {
@@ -417,6 +434,7 @@ function MiniPlayer() {
   // After first render, if no stored position, place bottom-right using measured size
   useEffect(() => {
     if (!visible) return;
+    if (isMobile) return; // bottom-docked on mobile, skip floating position init
     if (pos) return;
     const el = wrapperRef.current;
     if (!el) return;
@@ -432,6 +450,7 @@ function MiniPlayer() {
   // Clamp position to viewport whenever visible or pos changes
   useEffect(() => {
     if (!visible) return;
+    if (isMobile) return; // no floating on mobile
     if (!pos) return;
     const el = wrapperRef.current;
     if (!el) return;
@@ -455,6 +474,7 @@ function MiniPlayer() {
   useEffect(() => {
     const onResize = () => {
       const el = wrapperRef.current;
+      if (isMobile) return; // mobile stays docked
       if (!el || !pos) return;
       const rect = el.getBoundingClientRect();
       const margin = 8;
@@ -511,19 +531,22 @@ function MiniPlayer() {
       draggingRef.current.active = false;
       try { localStorage.setItem('miniPos', JSON.stringify(pos)); } catch {}
     };
-    document.addEventListener('mousemove', onMouseMove, { passive: false });
-    document.addEventListener('mouseup', onMouseUp);
-    document.addEventListener('touchmove', onTouchMove, { passive: false });
-    document.addEventListener('touchend', onTouchEnd);
+    if (!isMobile) {
+      document.addEventListener('mousemove', onMouseMove, { passive: false });
+      document.addEventListener('mouseup', onMouseUp);
+      document.addEventListener('touchmove', onTouchMove, { passive: false });
+      document.addEventListener('touchend', onTouchEnd);
+    }
     return () => {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
       document.removeEventListener('touchmove', onTouchMove);
       document.removeEventListener('touchend', onTouchEnd);
     };
-  }, [pos]);
+  }, [pos, isMobile]);
 
   const startDrag = (e) => {
+    if (isMobile) return; // disable dragging on mobile
     const start = 'touches' in e ? e.touches[0] : e;
     if (!start) return;
     const el = wrapperRef.current;
@@ -593,27 +616,118 @@ function MiniPlayer() {
     return `${m}:${ss}`;
   };
 
+  const isFullscreen = isMobile && expanded;
+
+  if (isFullscreen) {
+    const cover = current?.id ? `https://i.ytimg.com/vi/${current.id}/hqdefault.jpg` : null;
+    return (
+      <div className="fixed inset-0 z-50 bg-[var(--bg-0)]">
+        {/* Hidden video container */}
+        <div className="absolute opacity-0 pointer-events-none w-[320px] h-[180px] -z-10">
+          <div ref={containerRef} className="w-full h-full" />
+        </div>
+        {/* Top bar */}
+        <div className="h-14 px-4 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-1)]/70 backdrop-blur-xl">
+          <button className="text-[var(--text-1)] hover:text-[var(--text-0)]" aria-label="Collapse" onClick={() => setExpanded(false)}>↧</button>
+          <div className="text-sm text-[var(--text-1)]">Playing</div>
+          <Button aria-label="Close" variant="ghost" size="sm" onClick={close}>✕</Button>
+        </div>
+        {/* Artwork and info */}
+        <div className="px-5 pt-5 pb-3">
+          <div className="aspect-square rounded-2xl overflow-hidden border border-[var(--border)] shadow-xl">
+            {cover ? (
+              <img src={cover} alt={current.title || 'Cover'} className="aspect-inner object-cover" />
+            ) : (
+              <div className="aspect-inner flex items-center justify-center bg-[var(--panel)] text-[var(--text-1)]">♪</div>
+            )}
+          </div>
+          <div className="mt-4">
+            <div ref={titleBoxRef} className="text-[var(--text-0)] font-semibold text-xl leading-snug" title={current.title || 'Playing video'}>
+              <div className="truncate whitespace-nowrap">{current.title || 'Playing video'}</div>
+            </div>
+            {current.channel && <div className="text-sm text-[var(--text-1)] mt-1" title={current.channel}>{current.channel}</div>}
+          </div>
+        </div>
+        {/* Seek */}
+        <div className="px-5">
+          <input type="range" min={0} max={100} value={pct} onChange={handleSeek} className="range-touch w-full accent-[var(--brand)]" />
+          <div className="text-xs text-[var(--text-1)] mt-1">{fmt(currentTime)} / {fmt(duration)}</div>
+        </div>
+        {/* Controls */}
+        <div className="px-5 mt-4">
+          <div className="flex items-center justify-center gap-4">
+            <Button aria-label="Previous" title="Previous" variant="outline" size="icon" onClick={prev} disabled={!canPrev}>⏮</Button>
+            <Button aria-label="Rewind 10 seconds" title="Rewind 10 seconds" variant="outline" size="icon" onClick={() => seekBy(-10)}>⏪</Button>
+            <Button aria-label={isPlaying ? 'Pause' : 'Play'} title={isPlaying ? 'Pause' : 'Play'} variant="secondary" size="icon" className="h-14 w-14 text-2xl" onClick={toggle}>{isPlaying ? '⏸' : '▶'}</Button>
+            <Button aria-label="Forward 10 seconds" title="Forward 10 seconds" variant="outline" size="icon" onClick={() => seekBy(10)}>⏩</Button>
+            <Button aria-label="Next" title="Next" variant="outline" size="icon" onClick={next} disabled={!canNext}>⏭</Button>
+          </div>
+          <div className="mt-4 grid grid-cols-3 gap-3">
+            <Button aria-label={repeatTitle} title={repeatTitle} variant={repeatMode === 'off' ? 'outline' : 'secondary'} size="sm" onClick={cycleRepeat}>{repeatSymbol}</Button>
+            <Button aria-label={isLiked(current.id) ? 'Unlike' : 'Like'} title={isLiked(current.id) ? 'Unlike' : 'Like'} variant="outline" size="sm" onClick={() => toggleLike(current.id, current)}>{isLiked(current.id) ? '♥' : '♡'}</Button>
+            <Button aria-label="Add to playlist" title="Add to playlist" variant="outline" size="sm" onClick={() => setShowPl(true)}>＋</Button>
+          </div>
+        </div>
+        <div className="h-[env(safe-area-inset-bottom)]" />
+        {/* Modal overlay for playlist selection is rendered below */}
+        {showPl && (
+          <div className="fixed inset-0 z-50">
+            <div className="absolute inset-0 bg-black/60" onClick={() => setShowPl(false)} />
+            <div className="relative z-50 mx-auto mt-[10vh] w-[92%] max-w-sm bg-[var(--bg-0)] border border-[var(--border)] rounded-xl shadow-2xl p-4" ref={plMenuRef}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-[var(--text-0)] font-semibold">Add to playlist</div>
+                <button className="text-[var(--text-1)] hover:text-[var(--text-0)]" onClick={() => setShowPl(false)}>✕</button>
+              </div>
+              <div className="max-h-64 overflow-auto space-y-1">
+                {[...new Set(['liked', ...Object.keys(ytPlaylists || {})])].map(name => (
+                  <button key={name} className="block w-full text-left px-3 py-2 text-sm rounded hover:bg-[var(--bg-1)] text-[var(--text-0)]" onClick={() => { addToPlaylist(name, current); setShowPl(false); }}>➕ {name}</button>
+                ))}
+              </div>
+              <div className="mt-3 flex gap-2">
+                <input className="flex-1 h-9 bg-[var(--bg-0)] border border-[var(--border)] rounded px-3 text-sm text-[var(--text-0)] placeholder:text-[var(--text-1)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]" placeholder="New playlist name" value={newPl} onChange={(e) => setNewPl(e.target.value)} onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const name = (newPl || '').trim();
+                    if (!name) return;
+                    addToPlaylist(name, current);
+                    setNewPl('');
+                    setShowPl(false);
+                  }
+                }} />
+                <Button variant="secondary" size="sm" className="h-9 text-sm" disabled={!((newPl || '').trim())} onClick={() => { const name = (newPl || '').trim(); if (!name) return; addToPlaylist(name, current); setNewPl(''); setShowPl(false); }}>Create & Add</Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <>
     <div
       ref={wrapperRef}
-      className={pos ? "fixed z-50 md:w-[520px] w-[92vw]" : "fixed bottom-4 right-4 left-4 md:left-auto md:w-[520px] z-50"}
-      style={pos ? { left: pos.x, top: pos.y } : undefined}
+      className={isMobile ? "fixed inset-x-3 bottom-3 z-50" : (pos ? "fixed z-50 md:w-[520px] w-[92vw]" : "fixed bottom-4 right-4 left-4 md:left-auto md:w-[520px] z-50")}
+      style={!isMobile && pos ? { left: pos.x, top: pos.y } : undefined}
     >
-      <div className="border border-[var(--border)] rounded-[var(--radius)] shadow-2xl ring-1 ring-black/10 p-3 md:p-4 relative select-none bg-[var(--bg-0)]">
+      <div className="border border-[var(--border)] rounded-[var(--radius)] shadow-2xl ring-1 ring-black/10 p-3 md:p-4 pb-[env(safe-area-inset-bottom)] relative select-none bg-[var(--bg-0)]">
         {/* hidden video container to stream audio */}
         <div className="absolute opacity-0 pointer-events-none w-[320px] h-[180px] -z-10">
           <div ref={containerRef} className="w-full h-full" />
         </div>
-        {/* top-right close */}
-        <Button aria-label="Close player" variant="ghost" size="sm" onClick={close} className="absolute top-2 right-2 text-[var(--text-1)] hover:text-[var(--text-0)]">✕</Button>
+        {/* top-right actions */}
+        <div className="absolute top-2 right-2 flex items-center gap-1">
+          {isMobile && <Button aria-label="Expand" variant="ghost" size="sm" onClick={() => setExpanded(true)} className="text-[var(--text-1)] hover:text-[var(--text-0)]">⤢</Button>}
+          <Button aria-label="Close player" variant="ghost" size="sm" onClick={close} className="text-[var(--text-1)] hover:text-[var(--text-0)]">✕</Button>
+        </div>
         {/* Drag handle */}
-        <div
-          className="absolute left-0 right-10 top-0 h-6 cursor-move"
-          onMouseDown={startDrag}
-          onTouchStart={startDrag}
-          onDoubleClick={resetPos}
-        />
+        {!isMobile && (
+          <div
+            className="absolute left-0 right-10 top-0 h-6 cursor-move"
+            onMouseDown={startDrag}
+            onTouchStart={startDrag}
+            onDoubleClick={resetPos}
+          />
+        )}
         <div className="flex gap-4 items-start">
           <div className="flex-1 min-w-0">
             <div ref={titleBoxRef} className="text-[var(--text-0)] font-semibold overflow-hidden text-base md:text-lg leading-snug" title={current.title || 'Playing video'}>
@@ -634,47 +748,45 @@ function MiniPlayer() {
                 max={100}
                 value={pct}
                 onChange={handleSeek}
-                className="w-full accent-[var(--brand)]"
+                className="range-touch w-full accent-[var(--brand)]"
               />
               <div className="text-xs text-[var(--text-1)] mt-1">
                 {fmt(currentTime)} / {fmt(duration)}
               </div>
             </div>
-            <div className="mt-3 flex flex-wrap md:flex-nowrap gap-2 items-center justify-center md:justify-start">
-              <Button aria-label="Previous" title="Previous" variant="outline" size="sm" onClick={prev} disabled={!canPrev}>⏮</Button>
-              <Button aria-label="Rewind 10 seconds" title="Rewind 10 seconds" variant="outline" size="sm" onClick={() => seekBy(-10)}>⏪</Button>
-              <Button aria-label={isPlaying ? 'Pause' : 'Play'} title={isPlaying ? 'Pause' : 'Play'} variant="secondary" size="sm" onClick={toggle}>{isPlaying ? '⏸' : '▶'}</Button>
-              <Button aria-label="Forward 10 seconds" title="Forward 10 seconds" variant="outline" size="sm" onClick={() => seekBy(10)}>⏩</Button>
-              <Button aria-label="Next" title="Next" variant="outline" size="sm" onClick={next} disabled={!canNext}>⏭</Button>
-              <div className="ml-auto flex items-center gap-2">
-                <Button
-                  aria-label={repeatTitle}
-                  title={repeatTitle}
-                  variant={repeatMode === 'off' ? 'outline' : 'secondary'}
-                  size="sm"
-                  onClick={cycleRepeat}
-                >{repeatSymbol}</Button>
-                {/* Like current track */}
-                <Button
-                  aria-label={isLiked(current.id) ? 'Unlike' : 'Like'}
-                  title={isLiked(current.id) ? 'Unlike' : 'Like'}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => toggleLike(current.id, current)}
-                >{isLiked(current.id) ? '♥' : '♡'}</Button>
-                {/* Add to playlist (local) */}
-                <div className="relative overflow-visible" ref={plMenuRef}>
-                  <Button
-                    aria-label="Add to playlist"
-                    title="Add to playlist"
-                    variant="outline"
-                    size="icon"
-                    className="text-xl"
-                    onClick={() => setShowPl(true)}
-                  >＋</Button>
+            {isMobile ? (
+              <>
+                <div className="mt-3 flex items-center justify-center gap-3">
+                  <Button aria-label="Previous" title="Previous" variant="outline" size="icon" onClick={prev} disabled={!canPrev}>⏮</Button>
+                  <Button aria-label={isPlaying ? 'Pause' : 'Play'} title={isPlaying ? 'Pause' : 'Play'} variant="secondary" size="icon" className="h-12 w-12 text-xl" onClick={toggle}>{isPlaying ? '⏸' : '▶'}</Button>
+                  <Button aria-label="Next" title="Next" variant="outline" size="icon" onClick={next} disabled={!canNext}>⏭</Button>
+                </div>
+                <div className="mt-2 grid grid-cols-5 gap-2 items-center">
+                  <Button aria-label="Rewind 10 seconds" title="Rewind 10 seconds" variant="outline" size="icon" onClick={() => seekBy(-10)}>⏪</Button>
+                  <Button aria-label="Forward 10 seconds" title="Forward 10 seconds" variant="outline" size="icon" onClick={() => seekBy(10)}>⏩</Button>
+                  <Button aria-label={repeatTitle} title={repeatTitle} variant={repeatMode === 'off' ? 'outline' : 'secondary'} size="icon" onClick={cycleRepeat}>{repeatSymbol}</Button>
+                  <Button aria-label={isLiked(current.id) ? 'Unlike' : 'Like'} title={isLiked(current.id) ? 'Unlike' : 'Like'} variant="outline" size="icon" onClick={() => toggleLike(current.id, current)}>{isLiked(current.id) ? '♥' : '♡'}</Button>
+                  <div className="relative overflow-visible" ref={plMenuRef}>
+                    <Button aria-label="Add to playlist" title="Add to playlist" variant="outline" size="icon" className="text-xl" onClick={() => setShowPl(true)}>＋</Button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="mt-3 flex flex-wrap md:flex-nowrap gap-2 items-center justify-center md:justify-start">
+                <Button aria-label="Previous" title="Previous" variant="outline" size="sm" onClick={prev} disabled={!canPrev}>⏮</Button>
+                <Button aria-label="Rewind 10 seconds" title="Rewind 10 seconds" variant="outline" size="sm" onClick={() => seekBy(-10)}>⏪</Button>
+                <Button aria-label={isPlaying ? 'Pause' : 'Play'} title={isPlaying ? 'Pause' : 'Play'} variant="secondary" size="sm" onClick={toggle}>{isPlaying ? '⏸' : '▶'}</Button>
+                <Button aria-label="Forward 10 seconds" title="Forward 10 seconds" variant="outline" size="sm" onClick={() => seekBy(10)}>⏩</Button>
+                <Button aria-label="Next" title="Next" variant="outline" size="sm" onClick={next} disabled={!canNext}>⏭</Button>
+                <div className="ml-auto flex items-center gap-2">
+                  <Button aria-label={repeatTitle} title={repeatTitle} variant={repeatMode === 'off' ? 'outline' : 'secondary'} size="sm" onClick={cycleRepeat}>{repeatSymbol}</Button>
+                  <Button aria-label={isLiked(current.id) ? 'Unlike' : 'Like'} title={isLiked(current.id) ? 'Unlike' : 'Like'} variant="outline" size="sm" onClick={() => toggleLike(current.id, current)}>{isLiked(current.id) ? '♥' : '♡'}</Button>
+                  <div className="relative overflow-visible" ref={plMenuRef}>
+                    <Button aria-label="Add to playlist" title="Add to playlist" variant="outline" size="icon" className="text-xl" onClick={() => setShowPl(true)}>＋</Button>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
@@ -737,6 +849,20 @@ function MiniPlayer() {
 // Render modal overlay for playlist selection
 // Note: This relies on MiniPlayer's state; ensure it's within the same component scope
 
+function MiniPlayerSpacer() {
+  const { current, visible } = usePlayer();
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const apply = () => setIsMobile(!!mq.matches);
+    apply();
+    try { mq.addEventListener('change', apply); } catch { mq.addListener(apply); }
+    return () => { try { mq.removeEventListener('change', apply); } catch { mq.removeListener(apply); } };
+  }, []);
+  if (!(isMobile && visible && current)) return null;
+  return <div className="h-28" />;
+}
+
 export default function App({ children }) {
   return (
     <PlayerProvider>
@@ -747,6 +873,7 @@ export default function App({ children }) {
             {children}
           </div>
         </main>
+        <MiniPlayerSpacer />
         <MiniPlayer />
         <footer className="text-center text-base text-[var(--text-1)] py-6 border-t border-[var(--border)] backdrop-blur-md bg-[var(--bg-1)]">
           <div className="container mx-auto px-4">
